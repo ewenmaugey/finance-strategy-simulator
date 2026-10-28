@@ -58,3 +58,36 @@ def test_provider_rejects_invalid_date_range():
     provider = TwelveDataProvider("test-key")
     with pytest.raises(ValueError, match="on or before"):
         provider.fetch_daily_bars(["ABC"], date(2024, 1, 2), date(2024, 1, 1))
+
+
+@pytest.mark.parametrize(
+    "bad_row",
+    [
+        {"datetime": "2024-01-02", "open": "nan", "high": "13", "low": "11", "close": "12", "volume": "10"},
+        {"datetime": "2024-01-02", "open": "10", "high": "13", "low": "11", "close": "inf", "volume": "10"},
+        {"datetime": "2024-01-02", "open": "14", "high": "13", "low": "11", "close": "12", "volume": "10"},
+        {"datetime": "2024-01-02", "open": "10", "high": "13", "low": "11", "close": "12", "volume": "1.5"},
+        {"datetime": "2024-01-02", "open": "10", "high": "13", "low": "11", "close": "12", "volume": "-1"},
+    ],
+)
+def test_provider_rejects_invalid_ohlcv_rows(monkeypatch, bad_row):
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: FakeResponse({"values": [bad_row]}))
+    provider = TwelveDataProvider("test-key")
+
+    with pytest.raises(TwelveDataError, match="Invalid daily-bar data"):
+        provider.fetch_daily_bars(["ABC"], date(2024, 1, 1), date(2024, 1, 5))
+
+
+@pytest.mark.parametrize("timeout", [float("nan"), float("inf"), 0, -1])
+def test_provider_rejects_non_positive_or_non_finite_timeout(timeout):
+    with pytest.raises(ValueError, match="timeout"):
+        TwelveDataProvider("test-key", timeout=timeout)
+
+
+@pytest.mark.parametrize("values", [None, {}, "bad"])
+def test_provider_rejects_invalid_values_container(monkeypatch, values):
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: FakeResponse({"values": values}))
+    provider = TwelveDataProvider("test-key")
+
+    with pytest.raises(TwelveDataError, match="Invalid daily-bar data"):
+        provider.fetch_daily_bars(["ABC"], date(2024, 1, 1), date(2024, 1, 5))
