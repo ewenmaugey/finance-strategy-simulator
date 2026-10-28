@@ -5,7 +5,7 @@ from datetime import date
 
 from sp500_strategy_simulator.config import StrategyConfig
 from sp500_strategy_simulator.models import DailyBar, Trade
-from sp500_strategy_simulator.ranking import rank_assets
+from sp500_strategy_simulator.ranking import rank_by_momentum
 
 
 def simulate(
@@ -61,12 +61,16 @@ def simulate(
                 trades.append(Trade(symbol, current_date, "SELL", bar.open, quantity, fee))
             del held[symbol]
 
-        ranking_input = {
-            symbol: bars
+        # The ranking API consumes a flat iterable of bars and returns
+        # MomentumScore objects. Include only observations up to this session.
+        ranking_input = (
+            bar
             for symbol, bars in by_symbol.items()
             if symbol in indexed and current_date in indexed[symbol]
-        }
-        ranked = rank_assets(
+            for bar in bars
+            if bar.session_date <= current_date
+        )
+        ranked = rank_by_momentum(
             ranking_input,
             current_date,
             config.momentum_lookback_days,
