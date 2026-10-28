@@ -46,7 +46,10 @@ def test_main_reports_metrics_and_exports_only_requested_period(tmp_path, monkey
     captured = capsys.readouterr()
     assert "Period: 2024-01-03 to 2024-01-05" in captured.out
     assert "Symbols requested: 2" in captured.out
+    assert "Initial portfolio value for evaluation: 10,000.00" in captured.out
     lines = output.read_text(encoding="utf-8").splitlines()
     assert lines[0] == "date,portfolio_value,daily_return"
-    assert all(line.split(",")[0] >= "2024-01-03" for line in lines[1:])
-    assert all(line.split(",")[0] <= "2024-01-05" for line in lines[1:])
+    rows = [line.split(",") for line in lines[1:]]
+    assert all(row[0] >= "2024-01-03" for row in rows)
+    assert all(row[0] <= "2024-01-05" for row in rows)
+    assert float(rows[0][2]) == pytest.approx(float(rows[0][1]) / 10_000 - 1)

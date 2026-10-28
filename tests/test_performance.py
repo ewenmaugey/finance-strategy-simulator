@@ -40,6 +40,18 @@ def test_metrics_known_values_and_drawdown() -> None:
     assert metrics.annualized_volatility > 0
 
 
+def test_metrics_use_evaluation_anchor_for_total_and_annualized_return() -> None:
+    curve = [
+        PortfolioValue(date(2024, 1, 2), 120),
+        PortfolioValue(date(2024, 1, 3), 132),
+    ]
+
+    metrics = calculate_metrics(curve, 110, periods_per_year=2)
+
+    assert metrics.total_return == pytest.approx(0.2)
+    assert metrics.annualized_return == pytest.approx(0.44)
+
+
 def test_empty_curve_has_zero_metrics() -> None:
     assert calculate_metrics([], 10_000) == calculate_metrics([], 10_000)
 
