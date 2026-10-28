@@ -73,3 +73,26 @@ def test_duplicate_session_is_rejected() -> None:
     bars = make_bars("AAA", [10, 11, 12])
     with pytest.raises(ValueError, match="duplicate session date"):
         simulate({"AAA": [*bars, bars[-1]]}, StrategyConfig())
+
+
+def test_simulation_uses_only_history_available_at_decision_date() -> None:
+    bars = {
+        "AAA": make_bars("AAA", [10, 11, 12, 13]),
+        "BBB": make_bars("BBB", [10, 11, 12, 100]),
+    }
+    config = StrategyConfig(
+        initial_capital=1_000,
+        n_assets=1,
+        momentum_lookback_days=2,
+        momentum_skip_days=0,
+        commission_rate=0,
+    )
+
+    trades = simulate(bars, config)
+
+    # The 100 close on the final date cannot influence the prior decision.
+    assert [(trade.symbol, trade.side, trade.session_date) for trade in trades] == [
+        ("AAA", "BUY", date(2024, 1, 4)),
+        ("AAA", "SELL", date(2024, 1, 5)),
+        ("BBB", "BUY", date(2024, 1, 5)),
+    ]
