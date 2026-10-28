@@ -31,7 +31,8 @@ def test_ranks_using_lookback_and_skip_endpoint_closes() -> None:
     ranked = rank_by_momentum(bars, decision, lookback_days=4, skip_days=1)
 
     # Uses close[3] / close[0] - 1; close[4] is the decision close.
-    assert [(item.symbol, item.score) for item in ranked] == [("AAA", 0.3)]
+    assert [item.symbol for item in ranked] == ["AAA"]
+    assert ranked[0].score == pytest.approx(0.3)
 
 
 def test_omits_symbols_without_full_history_or_decision_bar() -> None:

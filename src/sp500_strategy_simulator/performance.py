@@ -112,7 +112,8 @@ def calculate_metrics(
     observation. For a curve clipped to an evaluation window, pass the value at
     the preceding session as the anchor. Returns and risk-free rate are
     per-period arithmetic rates. Annualization uses the supplied number of
-    periods per year; Sharpe is zero when returns have no volatility.
+    periods per year. The return curve spans ``len(curve) - 1`` elapsed periods
+    from the anchor; Sharpe is zero when returns have no volatility.
     """
     if initial_capital <= 0:
         raise ValueError("initial_capital must be greater than zero")
@@ -124,9 +125,9 @@ def calculate_metrics(
     if any(value <= 0 for value in values):
         raise ValueError("portfolio values must be greater than zero")
     total_return = values[-1] / initial_capital - 1.0
-    elapsed = len(values)
+    elapsed_periods = max(len(values) - 1, 1)
     annualized_return = (
-        (values[-1] / initial_capital) ** (periods_per_year / elapsed) - 1.0
+        (values[-1] / initial_capital) ** (periods_per_year / elapsed_periods) - 1.0
     )
     returns = [
         current / previous - 1.0
