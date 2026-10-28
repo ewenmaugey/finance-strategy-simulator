@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Iterable
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 
 import requests
@@ -25,8 +26,8 @@ class TwelveDataProvider:
         self.api_key = api_key or os.getenv("TWELVE_DATA_API_KEY")
         if not self.api_key:
             raise ValueError("Provide api_key or set TWELVE_DATA_API_KEY")
-        if timeout <= 0:
-            raise ValueError("timeout must be greater than zero")
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be finite and greater than zero")
         self.timeout = timeout
 
     def fetch_daily_bars(
@@ -68,24 +69,41 @@ class TwelveDataProvider:
             except (requests.RequestException, ValueError) as exc:
                 raise TwelveDataError(f"Failed to fetch daily bars for {symbol}") from exc
 
-            if not isinstance(payload, dict) or "values" not in payload:
-                message = payload.get("message", "unexpected response") if isinstance(payload, dict) else "unexpected response"
+            if not isinstance(payload, dict):
+                raise TwelveDataError(f"Unexpected response from Twelve Data for {symbol}")
+            if payload.get("status") == "error" or "values" not in payload:
+                message = payload.get("message", "unexpected response")
                 raise TwelveDataError(f"Twelve Data error for {symbol}: {message}")
+            if not isinstance(payload["values"], list):
+                raise TwelveDataError(f"Invalid daily-bar data for {symbol}")
 
+            bars: list[DailyBar] = []
             try:
-                bars = [
-                    DailyBar(
-                        symbol=symbol,
-                        session_date=date.fromisoformat(row["datetime"][:10]),
-                        open=float(row["open"]),
-                        high=float(row["high"]),
-                        low=float(row["low"]),
-                        close=float(row["close"]),
-                        volume=int(float(row["volume"])),
+                for row in payload["values"]:
+                    if not isinstance(row, dict):
+                        raise ValueError("daily-bar row must be an object")
+                    session_date = date.fromisoformat(row["datetime"][:10])
+                    if not start_date <= session_date <= end_date:
+                        continue
+                    prices = {
+                        field: float(row[field])
+                        for field in ("open", "high", "low", "close")
+                    }
+                    volume_value = float(row["volume"])
+                    if not math.isfinite(volume_value) or not volume_value.is_integer():
+                        raise ValueError("volume must be a finite integer")
+                    if volume_value < 0:
+                        raise ValueError("volume cannot be negative")
+                    if any(not math.isfinite(value) for value in prices.values()):
+                        raise ValueError("prices must be finite")
+                    bars.append(
+                        DailyBar(
+                            symbol=symbol,
+                            session_date=session_date,
+                            **prices,
+                            volume=int(volume_value),
+                        )
                     )
-                    for row in payload["values"]
-                    if start_date <= date.fromisoformat(row["datetime"][:10]) <= end_date
-                ]
                 bars.sort(key=lambda bar: bar.session_date)
             except (KeyError, TypeError, ValueError, OverflowError) as exc:
                 raise TwelveDataError(f"Invalid daily-bar data for {symbol}") from exc
