@@ -1,44 +1,55 @@
 # S&P 500 Strategy Simulator
 
-Un projet de recherche pour récupérer des données de marché via Twelve Data, classer des actions du S&P 500 selon une règle statistique explicite et simuler l’évolution d’un portefeuille fictif. Les résultats sont reproductibles et accompagnés de leurs hypothèses.
+Un projet de recherche pour récupérer des données de marché via Twelve Data, classer des actions selon une règle statistique explicite et simuler l’évolution d’un portefeuille fictif. Les résultats sont reproductibles et accompagnés de leurs hypothèses.
 
 > **Avertissement :** ce projet est un outil éducatif de simulation. Il ne fournit pas de conseil financier et ne passe aucun ordre réel.
 
 ## Objectif de la version 1
 
-Construire un backtest simple, compréhensible et testable, sans fuite de données futures :
+La stratégie classe les titres selon leur momentum sur 12 mois en excluant le mois le plus récent, achète les meilleurs à la clôture, puis revend à l’ouverture de la séance suivante. Les frais sont déduits sur chaque transaction et le portefeuille est valorisé au fil des séances.
 
-1. Récupérer les données historiques nécessaires pour les titres de l’univers étudié.
-2. À chaque séance, classer les titres à partir des seules données disponibles à la clôture de cette séance.
-3. Retenir les cinq meilleurs titres éligibles.
-4. Acheter les titres retenus à la clôture de la séance de décision, puis les vendre à l’ouverture de la séance suivante. Le cycle se répète chaque séance, avec une allocation équipondérée.
-5. Déduire les frais configurés et suivre la valeur du portefeuille au fil du temps.
+## Lancer un backtest
 
-La stratégie a donc une fréquence **journalière avec deux exécutions par cycle** : achat à la clôture, puis vente à l’ouverture suivante. « x2 » désigne ces deux opérations à des moments différents, pas deux cycles complets par jour.
+Installer le projet et ses dépendances de données :
 
-## Règle de classement initiale
+```bash
+python -m pip install -e '.[data]'
+```
 
-La stratégie v1 utilise le **momentum sur 12 mois, en excluant le mois le plus récent**. Le score est calculé à partir des cours historiques disponibles à la clôture de la date de décision. Les paramètres de la stratégie doivent être fixés avant l’évaluation sur la période de test.
+Définir la clé API Twelve Data sans l’inscrire dans le code :
 
-La simulation respecte l’ordre temporel suivant : le score connu à la clôture détermine l’achat à cette clôture, puis la position est vendue à l’ouverture de la séance de marché suivante. Les paramètres de classement sont exprimés en observations de marché (252 séances de lookback et 21 séances exclues par défaut), et non en jours calendaires.
+```bash
+export TWELVE_DATA_API_KEY="votre_clé"
+```
 
-## Hypothèses et limites actuelles
+Puis lancer, par exemple :
 
-- Les frais sont appliqués sur chaque transaction et les fractions d’actions sont autorisées.
-- L’allocation est équipondérée entre les titres sélectionnés, dans la limite des liquidités disponibles.
-- La simulation utilise les dates présentes dans les données fournies comme calendrier des séances. Une ouverture absente pour un titre ne génère pas de vente fictive ; le comportement des positions bloquées par des données manquantes doit être interprété avec prudence.
-- La valorisation conserve le dernier cours de clôture connu lorsqu’un titre détenu n’a pas de nouvelle clôture. Cela évite de valoriser arbitrairement la position à zéro, mais peut laisser une valorisation périmée.
-- Les métriques annualisées supposent des observations régulièrement espacées. Le ratio de Sharpe est calculé avec le taux sans risque fourni (zéro par défaut).
-- La liste actuelle des membres du S&P 500 ne représente pas sa composition historique. L’utiliser sur une période passée peut introduire un biais de survivance.
-- Le fournisseur Twelve Data requiert une clé API (`TWELVE_DATA_API_KEY`) et peut imposer des limites de requêtes et de profondeur historique. La disponibilité des données doit être vérifiée pour chaque période et chaque symbole.
+```bash
+sp500-backtest \
+  --symbols AAPL,MSFT,NVDA \
+  --start 2023-01-01 \
+  --end 2024-12-31
+```
 
-## Principes du projet
+Options disponibles : `--capital`, `--assets`, `--lookback`, `--skip` et `--commission`. Les dates sont au format `YYYY-MM-DD`; les jours de lookback et de skip sont des observations de marché, non des jours calendaires. `--symbols` attend une liste fournie par l’utilisateur : la CLI ne construit pas encore l’univers historique du S&P 500.
 
-- **Pas de données futures :** le classement ne peut utiliser que les informations disponibles au moment de l’achat.
-- **Reproductibilité :** chaque simulation doit exposer ses paramètres, sa période et ses hypothèses.
-- **Tests sans clé API :** les calculs et le moteur doivent fonctionner avec des données synthétiques ; les tests du fournisseur utilisent des réponses simulées.
-- **Référence de comparaison :** les résultats devront être comparés à un benchmark adapté sur la même période et avec des conventions de valorisation comparables.
+L’outil affiche la valeur finale et les métriques de rendement total et annualisé, de volatilité, de Sharpe et de drawdown maximal. La période inclut un historique de chauffe antérieur au début demandé pour calculer le momentum; les métriques reposent toutefois sur la courbe complète construite à partir des données récupérées, donc elles peuvent inclure cette période de chauffe. Il s’agit d’un point à affiner pour isoler strictement la période d’évaluation.
 
-## État d’avancement
+## Principes et limites
 
-Le dépôt contient les modèles de données, la configuration, le classement par momentum, le moteur de simulation close-to-next-open, le fournisseur Twelve Data et les fonctions de valorisation et de calcul des métriques. Des tests unitaires couvrent ces composants. L’interface de ligne de commande, la constitution fiable de l’univers historique, la comparaison à un benchmark et un rapport de backtest restent à construire.
+- Pas d’utilisation volontaire de données futures pour le signal; les choix de séance s’appuient sur les cours disponibles à la clôture.
+- Le fournisseur Twelve Data nécessite une clé API et peut imposer des quotas ou limites de profondeur historique.
+- Les résultats dépendent de la qualité, des ajustements et de la disponibilité des données du fournisseur.
+- La composition actuelle du S&P 500 ne représente pas sa composition historique et peut créer un biais de survivance.
+- Un benchmark comparable et un rapport détaillé restent à construire.
+- Le backtest ne modélise pas encore l’impact de marché, le slippage, les impôts ou les restrictions de liquidité.
+
+## Développement
+
+Les calculs peuvent être testés sans clé API avec des données synthétiques :
+
+```bash
+python -m pip install -e '.[test,data]'
+pytest
+ruff check .
+```
