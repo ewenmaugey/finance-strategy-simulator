@@ -20,16 +20,25 @@ La stratégie a donc une fréquence **journalière avec deux exécutions par cyc
 
 La stratégie v1 utilise le **momentum sur 12 mois, en excluant le mois le plus récent**. Le score est calculé à partir des cours historiques disponibles à la clôture de la date de décision. Les paramètres de la stratégie doivent être fixés avant l’évaluation sur la période de test.
 
-La simulation doit respecter l’ordre temporel : le score connu à la clôture détermine l’achat à cette clôture, et la vente est valorisée à l’ouverture de la séance suivante. Les conventions précises d’éligibilité, de frais, d’allocation et de données manquantes seront documentées et testées avant d’interpréter les résultats.
+La simulation respecte l’ordre temporel suivant : le score connu à la clôture détermine l’achat à cette clôture, puis la position est vendue à l’ouverture de la séance de marché suivante. Les paramètres de classement sont exprimés en observations de marché (252 séances de lookback et 21 séances exclues par défaut), et non en jours calendaires.
+
+## Hypothèses et limites actuelles
+
+- Les frais sont appliqués sur chaque transaction et les fractions d’actions sont autorisées.
+- L’allocation est équipondérée entre les titres sélectionnés, dans la limite des liquidités disponibles.
+- La simulation utilise les dates présentes dans les données fournies comme calendrier des séances. Une ouverture absente pour un titre ne génère pas de vente fictive ; le comportement des positions bloquées par des données manquantes doit être interprété avec prudence.
+- La valorisation conserve le dernier cours de clôture connu lorsqu’un titre détenu n’a pas de nouvelle clôture. Cela évite de valoriser arbitrairement la position à zéro, mais peut laisser une valorisation périmée.
+- Les métriques annualisées supposent des observations régulièrement espacées. Le ratio de Sharpe est calculé avec le taux sans risque fourni (zéro par défaut).
+- La liste actuelle des membres du S&P 500 ne représente pas sa composition historique. L’utiliser sur une période passée peut introduire un biais de survivance.
+- Le fournisseur Twelve Data requiert une clé API (`TWELVE_DATA_API_KEY`) et peut imposer des limites de requêtes et de profondeur historique. La disponibilité des données doit être vérifiée pour chaque période et chaque symbole.
 
 ## Principes du projet
 
-- **Pas de données futures :** le classement ne peut utiliser que des informations disponibles au moment de l’achat.
+- **Pas de données futures :** le classement ne peut utiliser que les informations disponibles au moment de l’achat.
 - **Reproductibilité :** chaque simulation doit exposer ses paramètres, sa période et ses hypothèses.
-- **Tests sans clé API :** les calculs et le moteur doivent fonctionner avec des données synthétiques ; Twelve Data sera isolé derrière une interface de fournisseur.
-- **Limites visibles :** la liste actuelle des membres du S&P 500 ne représente pas automatiquement sa composition historique. Son utilisation pour une période passée peut créer un biais de survivance et devra être signalée.
-- **Référence de comparaison :** les résultats seront comparés à un benchmark adapté sur la même période et avec des conventions de valorisation comparables.
+- **Tests sans clé API :** les calculs et le moteur doivent fonctionner avec des données synthétiques ; les tests du fournisseur utilisent des réponses simulées.
+- **Référence de comparaison :** les résultats devront être comparés à un benchmark adapté sur la même période et avec des conventions de valorisation comparables.
 
 ## État d’avancement
 
-Le périmètre initial est défini : classement quotidien par momentum, achat à la clôture et vente à l’ouverture suivante. Le moteur, l’intégration Twelve Data, les tests et le rapport restent à construire.
+Le dépôt contient les modèles de données, la configuration, le classement par momentum, le moteur de simulation close-to-next-open, le fournisseur Twelve Data et les fonctions de valorisation et de calcul des métriques. Des tests unitaires couvrent ces composants. L’interface de ligne de commande, la constitution fiable de l’univers historique, la comparaison à un benchmark et un rapport de backtest restent à construire.
