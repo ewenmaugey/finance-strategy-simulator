@@ -108,9 +108,11 @@ def calculate_metrics(
 ) -> PerformanceMetrics:
     """Calculate returns, annualized volatility, Sharpe ratio and drawdown.
 
-    Returns and risk-free rate are per-period arithmetic rates. Annualization
-    uses the supplied number of periods per year; Sharpe is undefined (reported
-    as zero) when the return series has no volatility.
+    ``initial_capital`` is the portfolio value immediately before the first
+    observation. For a curve clipped to an evaluation window, pass the value at
+    the preceding session as the anchor. Returns and risk-free rate are
+    per-period arithmetic rates. Annualization uses the supplied number of
+    periods per year; Sharpe is zero when returns have no volatility.
     """
     if initial_capital <= 0:
         raise ValueError("initial_capital must be greater than zero")
@@ -122,19 +124,20 @@ def calculate_metrics(
     if any(value <= 0 for value in values):
         raise ValueError("portfolio values must be greater than zero")
     total_return = values[-1] / initial_capital - 1.0
-    elapsed = len(values) - 1
+    elapsed = len(values)
     annualized_return = (
         (values[-1] / initial_capital) ** (periods_per_year / elapsed) - 1.0
-        if elapsed > 0
-        else total_return
     )
-    returns = [current / previous - 1.0 for previous, current in zip(values, values[1:])]
+    returns = [
+        current / previous - 1.0
+        for previous, current in zip([initial_capital, *values[:-1]], values)
+    ]
     if len(returns) > 1:
         mean_return = sum(returns) / len(returns)
         variance = sum((value - mean_return) ** 2 for value in returns) / (len(returns) - 1)
         volatility = sqrt(variance) * sqrt(periods_per_year)
     else:
-        mean_return = returns[0] if returns else 0.0
+        mean_return = returns[0]
         volatility = 0.0
     sharpe = (
         (mean_return - risk_free_rate) * periods_per_year / volatility

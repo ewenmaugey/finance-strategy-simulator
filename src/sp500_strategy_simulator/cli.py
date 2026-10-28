@@ -39,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _write_equity_curve(path: Path, curve: Sequence, initial_capital: float) -> None:
-    """Write dated equity values and daily returns as a UTF-8 CSV."""
+    """Write dated equity values and returns from the preceding valuation."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as csv_file:
         writer = csv.writer(csv_file)
@@ -77,8 +77,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         bars = provider.fetch_daily_bars(symbols, fetch_start, args.end)
         trades = simulate(bars, config)
         full_curve = build_equity_curve(bars, trades, config.initial_capital)
-        curve = [point for point in full_curve if args.start <= point.session_date <= args.end]
-        metrics = calculate_metrics(curve, config.initial_capital)
+        start_index = next(
+            (index for index, point in enumerate(full_curve) if point.session_date >= args.start),
+            None,
+        )
+        if start_index is None:
+            curve = []
+            anchor_value = config.initial_capital
+        else:
+            curve = [point for point in full_curve[start_index:] if point.session_date <= args.end]
+            anchor_value = (
+                full_curve[start_index - 1].value
+                if start_index > 0
+                else config.initial_capital
+            )
+        metrics = calculate_metrics(curve, anchor_value)
     except (TwelveDataError, ValueError) as exc:
         parser.exit(2, f"Backtest failed: {exc}\n")
 
@@ -86,12 +99,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.exit(1, "No market data available for the requested period.\n")
     if args.output_csv:
         try:
-            _write_equity_curve(args.output_csv, curve, config.initial_capital)
+            _write_equity_curve(args.output_csv, curve, anchor_value)
         except OSError as exc:
             parser.exit(2, f"Could not write CSV output: {exc}\n")
     print(f"Period: {curve[0].session_date} to {curve[-1].session_date}")
     print(f"Symbols requested: {len(symbols)} | Trades: {len(trades)}")
-    print(f"Initial capital: {config.initial_capital:,.2f}")
+    print(f"Initial portfolio value for evaluation: {anchor_value:,.2f}")
     print(f"Final portfolio value: {curve[-1].value:,.2f}")
     print(f"Total return: {metrics.total_return:.2%}")
     print(f"Annualized return: {metrics.annualized_return:.2%}")
