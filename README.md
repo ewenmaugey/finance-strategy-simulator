@@ -33,7 +33,7 @@ sp500-backtest \
 
 Options disponibles : `--capital`, `--assets`, `--lookback`, `--skip` et `--commission`. Les dates sont au format `YYYY-MM-DD`; les jours de lookback et de skip sont des observations de marché, non des jours calendaires. `--symbols` attend une liste fournie par l’utilisateur : la CLI ne construit pas encore l’univers historique du S&P 500.
 
-L’outil affiche la valeur finale et les métriques de rendement total et annualisé, de volatilité, de Sharpe et de drawdown maximal. La période inclut un historique de chauffe antérieur au début demandé pour calculer le momentum; les métriques reposent toutefois sur la courbe complète construite à partir des données récupérées, donc elles peuvent inclure cette période de chauffe. Il s’agit d’un point à affiner pour isoler strictement la période d’évaluation.
+L’outil affiche la valeur finale et les métriques de rendement total et annualisé, de volatilité, de Sharpe et de drawdown maximal. La période de chauffe antérieure au début demandé sert uniquement au calcul du signal : les métriques et la courbe CSV portent sur la période d’évaluation demandée, à partir de sa première séance disponible. La valeur de portefeuille à cette première séance sert d’ancre pour calculer le rendement de la période.
 
 ## Principes et limites
 
