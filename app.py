@@ -13,11 +13,24 @@ from sp500_strategy_simulator.performance import build_equity_curve, calculate_m
 from sp500_strategy_simulator.simulation import simulate
 
 st.set_page_config(page_title="S&P 500 Strategy Simulator", layout="wide", page_icon="📈")
-st.title("📈 S&P 500 Momentum Strategy Simulator")
 
-# --- Barre latérale : Paramètres ---
+# --- Barre latérale : Sélection de Stratégie & Paramètres ---
 with st.sidebar:
-    st.header("⚙️ Configuration")
+    st.header("🎯 Stratégie")
+    selected_strategy = st.selectbox(
+        "Choisir la stratégie de trading",
+        options=[
+            "Momentum (Close-to-Next-Open)",
+            "Buy & Hold (Equi-pondéré) [À venir]",
+            "Croisement Moyennes Mobiles (SMA) [À venir]",
+            "Mean Reversion (RSI) [À venir]",
+        ],
+        index=0,
+        help="Sélectionnez la logique d'investissement à tester",
+    )
+
+    st.markdown("---")
+    st.header("⚙️ Paramètres généraux")
 
     api_key_env = os.getenv("TWELVE_DATA_API_KEY", "")
     api_key_input = st.text_input(
@@ -34,10 +47,10 @@ with st.sidebar:
     )
 
     symbols_input = st.text_area(
-        "Symboles (séparés par des virgules)",
+        "Univers d'actions (séparées par virgules)",
         value=top_20_sp500,
-        help="20 leaders du S&P 500",
-        height=100,
+        help="Sélection d'actions du S&P 500 à analyser",
+        height=90,
     )
 
     col_d1, col_d2 = st.columns(2)
@@ -47,18 +60,34 @@ with st.sidebar:
     end_date = col_d2.date_input("Date de fin", value=today)
 
     capital = st.number_input("Capital initial ($)", min_value=100.0, value=10000.0, step=1000.0)
-    assets = st.number_input("Nombre d'actifs en portefeuille", min_value=1, max_value=50, value=5)
-    lookback = st.number_input("Fenêtre Lookback (jours)", min_value=10, value=252)
-    skip = st.number_input("Fenêtre Skip (jours)", min_value=0, value=21)
 
+    # Paramètres spécifiques selon la stratégie
+    if selected_strategy == "Momentum (Close-to-Next-Open)":
+        st.subheader("Paramètres Momentum")
+        assets = st.number_input("Nombre d'actifs sélectionnés", min_value=1, max_value=50, value=5)
+        lookback = st.number_input("Fenêtre Lookback (jours)", min_value=10, value=252)
+        skip = st.number_input("Fenêtre Skip (jours)", min_value=0, value=21)
+    else:
+        st.info("Cette stratégie est en cours d'intégration.")
+        assets = 5
+        lookback = 252
+        skip = 21
+
+    st.subheader("Frais & Fiscalité")
     col_frais1, col_frais2 = st.columns(2)
     fixed_fee = col_frais1.number_input("Frais fixes / ordre ($)", min_value=0.0, value=1.0, step=0.5)
     tax_percent = col_frais2.number_input("Flat Tax / Impôt (%)", min_value=0.0, max_value=100.0, value=30.0, step=1.0)
 
     run_btn = st.button("🚀 Lancer la simulation", type="primary", use_container_width=True)
 
+st.title(f"📈 {selected_strategy}")
+
 # --- Exécution ---
 if run_btn:
+    if "[À venir]" in selected_strategy:
+        st.warning(f"La stratégie '{selected_strategy}' n'est pas encore implémentée. Sélectionnez la stratégie Momentum.")
+        st.stop()
+
     api_key = api_key_input.strip()
     if not api_key:
         st.error("Veuillez renseigner votre clé API Twelve Data.")
@@ -99,7 +128,6 @@ if run_btn:
             )
 
             trades = simulate(bars_by_symbol, config)
-            # Correction: passer config.initial_capital (float) et non l'objet config entier
             full_curve = build_equity_curve(bars_by_symbol, trades, config.initial_capital)
 
             # Filtrer sur la période demandée
