@@ -9,8 +9,12 @@ import streamlit as st
 from sp500_strategy_simulator.config import StrategyConfig
 from sp500_strategy_simulator.data_provider import TwelveDataError, TwelveDataProvider
 from sp500_strategy_simulator.performance import build_equity_curve, calculate_metrics
-from sp500_strategy_simulator.simulation import simulate
-from sp500_strategy_simulator.congress_data import fetch_congress_transactions, get_top_politicians
+from sp500_strategy_simulator.simulation import simulate, Trade
+from sp500_strategy_simulator.congress_data import (
+    fetch_congress_trades,
+    fetch_congress_transactions,
+    get_top_politicians,
+)
 
 st.set_page_config(page_title="S&P 500 Strategy Simulator", layout="wide", page_icon="📈")
 
@@ -26,6 +30,125 @@ def _line_chart_compat(data):
         st.line_chart(data, width="stretch")
     except TypeError:
         st.line_chart(data, use_container_width=True)
+
+# --- Simulation spécifique au Congress Tracker ---
+def simulate_congress_tracker(
+    trades_congress,
+    bars_by_symbol,
+    holding_days: int,
+    initial_capital: float,
+    fixed_fee: float,
+    start_date: date,
+    end_date: date,
+):
+    """
+    Simule une stratégie de copie des élus US :
+    - On achète à la date de divulgation (disclosure_date) ou premier jour de cotation suivant
+    - On revend après `holding_days` jours calendaires (ou dernier cours disponible)
+    - Le capital est réparti équitablement sur les positions
+    """
+    sim_trades = []
+    cash = initial_capital
+    active_positions = {}  # ticker -> {'shares': float, 'buy_date': date, 'buy_price': float}
+
+    # Récupérer toutes les dates de bourse disponibles ordonnées
+    all_dates = sorted({b.session_date for bars in bars_by_symbol.values() for b in bars})
+    date_to_bars = {}
+    for sym, bars in bars_by_symbol.items():
+        for b in bars:
+            if b.session_date not in date_to_bars:
+                date_to_bars[b.session_date] = {}
+            date_to_bars[b.session_date][sym] = b
+
+    # Indexer les achats du congrès par date de divulgation
+    purchases_by_date = {}
+    for t in trades_congress:
+        if start_date <= t.disclosure_date <= end_date:
+            purchases_by_date.setdefault(t.disclosure_date, []).append(t.ticker)
+
+    for current_date in all_dates:
+        if current_date < start_date or current_date > end_date:
+            continue
+
+        daily_bars = date_to_bars.get(current_date, {})
+
+        # 1. Vérifier si des positions doivent être vendues (délai holding_days dépassé)
+        tickers_to_close = []
+        for ticker, pos in list(active_positions.items()):
+            days_held = (current_date - pos["buy_date"]).days
+            if days_held >= holding_days and ticker in daily_bars:
+                bar = daily_bars[ticker]
+                sell_price = bar.open_price if bar.open_price > 0 else bar.close_price
+                proceeds = pos["shares"] * sell_price - fixed_fee
+                cash += proceeds
+                sim_trades.append(
+                    Trade(
+                        session_date=current_date,
+                        symbol=ticker,
+                        side="SELL",
+                        quantity=pos["shares"],
+                        price=sell_price,
+                        commission=fixed_fee,
+                    )
+                )
+                tickers_to_close.append(ticker)
+
+        for ticker in tickers_to_close:
+            del active_positions[ticker]
+
+        # 2. Exécuter les nouveaux achats prévus aujourd'hui
+        new_targets = purchases_by_date.get(current_date, [])
+        for ticker in new_targets:
+            if ticker in daily_bars and ticker not in active_positions:
+                bar = daily_bars[ticker]
+                buy_price = bar.open_price if bar.open_price > 0 else bar.close_price
+                if buy_price <= 0:
+                    continue
+
+                # Allocation : fraction du cash disponible
+                target_allocation = max(500.0, cash / max(1, (4 - len(active_positions))))
+                budget = min(cash - fixed_fee, target_allocation)
+
+                if budget > buy_price:
+                    shares = (budget - fixed_fee) / buy_price
+                    cash -= (shares * buy_price + fixed_fee)
+                    active_positions[ticker] = {
+                        "shares": shares,
+                        "buy_date": current_date,
+                        "buy_price": buy_price,
+                    }
+                    sim_trades.append(
+                        Trade(
+                            session_date=current_date,
+                            symbol=ticker,
+                            side="BUY",
+                            quantity=shares,
+                            price=buy_price,
+                            commission=fixed_fee,
+                        )
+                    )
+
+    # Fermer les positions ouvertes à la toute fin pour le calcul final
+    last_date = all_dates[-1] if all_dates else end_date
+    daily_bars = date_to_bars.get(last_date, {})
+    for ticker, pos in list(active_positions.items()):
+        bar = daily_bars.get(ticker)
+        if bar:
+            sell_price = bar.close_price
+            proceeds = pos["shares"] * sell_price - fixed_fee
+            cash += proceeds
+            sim_trades.append(
+                Trade(
+                    session_date=last_date,
+                    symbol=ticker,
+                    side="SELL",
+                    quantity=pos["shares"],
+                    price=sell_price,
+                    commission=fixed_fee,
+                )
+            )
+
+    return sim_trades
 
 # --- Barre latérale : Sélection de Stratégie & Paramètres ---
 with st.sidebar:
@@ -55,7 +178,7 @@ with st.sidebar:
 
     col_d1, col_d2 = st.columns(2)
     today = date.today()
-    default_start = today - timedelta(days=365)
+    default_start = today - timedelta(days=365 * 2)
     start_date = col_d1.date_input("Date de début", value=default_start)
     end_date = col_d2.date_input("Date de fin", value=today)
 
@@ -123,15 +246,14 @@ st.title(f"📈 {selected_strategy}")
 if selected_strategy == "🏛️ Congress Tracker (Copie des élus US)":
     st.markdown("### 🏛️ Flux des déclarations STOCK Act")
     st.write("Ce module récupère les déclarations officielles (PTR) déposées par les membres du Congrès américain.")
-    with st.spinner("Chargement des transactions du Congrès..."):
-        pol_filter = None if politician_choice == "Tous les membres" else politician_choice
-        df_congress = fetch_congress_transactions(politician=pol_filter)
-        if not df_congress.empty:
-            _dataframe_compat(
-                df_congress.head(20)[["disclosure_date", "transaction_date", "representative", "ticker", "type", "amount"]]
-            )
-        else:
-            st.info("Aucune transaction trouvée.")
+    pol_filter = None if politician_choice == "Tous les membres" else politician_choice
+    df_congress = fetch_congress_transactions(politician=pol_filter)
+    if not df_congress.empty:
+        _dataframe_compat(
+            df_congress.head(50)[["disclosure_date", "transaction_date", "representative", "ticker", "type", "amount"]]
+        )
+    else:
+        st.info("Aucune transaction trouvée.")
 
 # --- Exécution ---
 if run_btn:
@@ -139,71 +261,110 @@ if run_btn:
         st.warning(f"La stratégie '{selected_strategy}' n'est pas encore implémentée.")
         st.stop()
 
-    if selected_strategy == "🏛️ Congress Tracker (Copie des élus US)":
-        st.success(f"Déclarations récupérées avec succès pour **{politician_choice}**. Prochaine étape : génération des ordres d'achat à chaque date de déclaration !")
-        st.stop()
-
     api_key = api_key_input.strip()
     if not api_key:
         st.error("Veuillez renseigner votre clé API Twelve Data.")
-        st.stop()
-
-    symbols = list(dict.fromkeys(s.strip().upper() for s in symbols_input.split(",") if s.strip()))
-
-    if not symbols:
-        st.error("Veuillez renseigner au moins un ticker valide.")
         st.stop()
 
     if start_date >= end_date:
         st.error("La date de début doit précéder la date de fin.")
         st.stop()
 
-    with st.spinner(f"Récupération des données pour {len(symbols)} actifs et calcul du backtest..."):
-        try:
-            config = StrategyConfig(
-                initial_capital=capital,
-                n_assets=assets,
-                momentum_lookback_days=lookback,
-                momentum_skip_days=skip,
-                commission_rate=0.0,
-                fixed_commission=fixed_fee,
-                tax_rate=tax_percent / 100.0,
-                start_date=start_date,
-                end_date=end_date,
-            )
+    provider = TwelveDataProvider(api_key=api_key)
 
-            history_start = start_date - timedelta(days=int((lookback + skip) * 1.5) + 30)
+    if selected_strategy == "🏛️ Congress Tracker (Copie des élus US)":
+        pol_filter = None if politician_choice == "Tous les membres" else politician_choice
+        trades_congress = fetch_congress_trades(
+            min_disclosure_date=start_date,
+            max_disclosure_date=end_date,
+            politician_filter=pol_filter,
+            only_purchases=True,
+        )
 
-            provider = TwelveDataProvider(api_key=api_key)
-            bars_by_symbol = provider.fetch_daily_bars(
-                symbols=symbols,
-                start_date=history_start,
-                end_date=end_date,
-            )
+        tickers_to_fetch = list(dict.fromkeys(t.ticker for t in trades_congress))
 
-            trades = simulate(bars_by_symbol, config)
-            full_curve = build_equity_curve(bars_by_symbol, trades, config.initial_capital)
-
-            start_index = next(
-                (i for i, pt in enumerate(full_curve) if pt.session_date >= start_date),
-                None,
-            )
-
-            if start_index is None:
-                st.warning("Aucune donnée disponible sur la période sélectionnée.")
-                st.stop()
-
-            curve = [pt for pt in full_curve[start_index:] if pt.session_date <= end_date]
-            anchor_value = full_curve[start_index - 1].value if start_index > 0 else config.initial_capital
-            metrics = calculate_metrics(curve, anchor_value)
-
-        except (TwelveDataError, ValueError) as exc:
-            st.error(f"Erreur durant la simulation : {exc}")
+        if not tickers_to_fetch:
+            st.warning("Aucune déclaration d'achat trouvée pour cette période et ce membre.")
             st.stop()
 
-    final_val_brut = curve[-1].value
+        with st.spinner(f"Récupération des cours boursiers pour les {len(tickers_to_fetch)} actions ciblées par le Congrès..."):
+            try:
+                bars_by_symbol = provider.fetch_daily_bars(
+                    symbols=tickers_to_fetch,
+                    start_date=start_date - timedelta(days=10),
+                    end_date=end_date + timedelta(days=holding_days + 10),
+                )
+                trades = simulate_congress_tracker(
+                    trades_congress=trades_congress,
+                    bars_by_symbol=bars_by_symbol,
+                    holding_days=holding_days,
+                    initial_capital=capital,
+                    fixed_fee=fixed_fee,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                full_curve = build_equity_curve(bars_by_symbol, trades, capital)
+                curve = [pt for pt in full_curve if start_date <= pt.session_date <= end_date]
+                if not curve:
+                    curve = full_curve
+
+                anchor_value = capital
+                metrics = calculate_metrics(curve, anchor_value)
+            except (TwelveDataError, ValueError) as exc:
+                st.error(f"Erreur durant la simulation Congress : {exc}")
+                st.stop()
+
+    elif selected_strategy == "Momentum (Close-to-Next-Open)":
+        symbols = list(dict.fromkeys(s.strip().upper() for s in symbols_input.split(",") if s.strip()))
+        if not symbols:
+            st.error("Veuillez renseigner au moins un ticker valide.")
+            st.stop()
+
+        with st.spinner(f"Récupération des données pour {len(symbols)} actifs et calcul du backtest..."):
+            try:
+                config = StrategyConfig(
+                    initial_capital=capital,
+                    n_assets=assets,
+                    momentum_lookback_days=lookback,
+                    momentum_skip_days=skip,
+                    commission_rate=0.0,
+                    fixed_commission=fixed_fee,
+                    tax_rate=tax_percent / 100.0,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+
+                history_start = start_date - timedelta(days=int((lookback + skip) * 1.5) + 30)
+                bars_by_symbol = provider.fetch_daily_bars(
+                    symbols=symbols,
+                    start_date=history_start,
+                    end_date=end_date,
+                )
+
+                trades = simulate(bars_by_symbol, config)
+                full_curve = build_equity_curve(bars_by_symbol, trades, config.initial_capital)
+
+                start_index = next(
+                    (i for i, pt in enumerate(full_curve) if pt.session_date >= start_date),
+                    None,
+                )
+
+                if start_index is None:
+                    st.warning("Aucune donnée disponible sur la période sélectionnée.")
+                    st.stop()
+
+                curve = [pt for pt in full_curve[start_index:] if pt.session_date <= end_date]
+                anchor_value = full_curve[start_index - 1].value if start_index > 0 else config.initial_capital
+                metrics = calculate_metrics(curve, anchor_value)
+
+            except (TwelveDataError, ValueError) as exc:
+                st.error(f"Erreur durant la simulation : {exc}")
+                st.stop()
+
+    # --- Métriques & Résultats communs ---
+    final_val_brut = curve[-1].value if curve else capital
     gain_brut = final_val_brut - anchor_value
-    tax = max(0.0, gain_brut * config.tax_rate) if gain_brut > 0 else 0.0
+    tax = max(0.0, gain_brut * (tax_percent / 100.0)) if gain_brut > 0 else 0.0
     final_val_net = final_val_brut - tax
     total_commissions = sum(t.commission for t in trades)
 
