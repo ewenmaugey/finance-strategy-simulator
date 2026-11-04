@@ -8,7 +8,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Miroir GitHub fiable et maintenu des données STOCK Act
+# Miroirs et sources de données STOCK Act
 SOURCES = [
     "https://raw.githubusercontent.com/datasets/house-stock-watcher/main/data/all_transactions.json",
     "https://raw.githubusercontent.com/timothytim/congress-trading-data/main/data/all_transactions.json",
@@ -26,8 +26,9 @@ class CongressTrade:
     party: Optional[str] = None
 
 
-# Dataset représentatif des transactions officielles STOCK Act
+# Dataset représentatif étendu des transactions officielles STOCK Act
 SAMPLE_DATA = [
+    # 2024
     {
         "representative": "Hon. Nancy Pelosi",
         "ticker": "NVDA",
@@ -35,7 +36,7 @@ SAMPLE_DATA = [
         "amount": "$1,000,001 - $5,000,000",
         "transaction_date": "2024-06-26",
         "disclosure_date": "2024-07-02",
-        "party": "Democrat"
+        "party": "Democrat",
     },
     {
         "representative": "Hon. Nancy Pelosi",
@@ -44,16 +45,7 @@ SAMPLE_DATA = [
         "amount": "$1,000,001 - $5,000,000",
         "transaction_date": "2024-06-26",
         "disclosure_date": "2024-07-02",
-        "party": "Democrat"
-    },
-    {
-        "representative": "Hon. Nancy Pelosi",
-        "ticker": "AAPL",
-        "type": "purchase",
-        "amount": "$500,001 - $1,000,000",
-        "transaction_date": "2024-01-12",
-        "disclosure_date": "2024-01-18",
-        "party": "Democrat"
+        "party": "Democrat",
     },
     {
         "representative": "Hon. Michael McCaul",
@@ -62,7 +54,7 @@ SAMPLE_DATA = [
         "amount": "$100,001 - $250,000",
         "transaction_date": "2024-05-15",
         "disclosure_date": "2024-06-03",
-        "party": "Republican"
+        "party": "Republican",
     },
     {
         "representative": "Hon. Michael McCaul",
@@ -71,16 +63,7 @@ SAMPLE_DATA = [
         "amount": "$50,001 - $100,000",
         "transaction_date": "2024-04-10",
         "disclosure_date": "2024-05-02",
-        "party": "Republican"
-    },
-    {
-        "representative": "Hon. Ro Khanna",
-        "ticker": "GOOGL",
-        "type": "purchase",
-        "amount": "$15,001 - $50,000",
-        "transaction_date": "2024-03-12",
-        "disclosure_date": "2024-04-05",
-        "party": "Democrat"
+        "party": "Republican",
     },
     {
         "representative": "Hon. Ro Khanna",
@@ -89,7 +72,16 @@ SAMPLE_DATA = [
         "amount": "$15,001 - $50,000",
         "transaction_date": "2024-03-18",
         "disclosure_date": "2024-04-08",
-        "party": "Democrat"
+        "party": "Democrat",
+    },
+    {
+        "representative": "Hon. Ro Khanna",
+        "ticker": "GOOGL",
+        "type": "purchase",
+        "amount": "$15,001 - $50,000",
+        "transaction_date": "2024-03-12",
+        "disclosure_date": "2024-04-05",
+        "party": "Democrat",
     },
     {
         "representative": "Hon. Kevin Hern",
@@ -98,7 +90,7 @@ SAMPLE_DATA = [
         "amount": "$100,001 - $250,000",
         "transaction_date": "2024-02-14",
         "disclosure_date": "2024-03-01",
-        "party": "Republican"
+        "party": "Republican",
     },
     {
         "representative": "Hon. Dan Crenshaw",
@@ -107,8 +99,18 @@ SAMPLE_DATA = [
         "amount": "$1,001 - $15,000",
         "transaction_date": "2024-01-08",
         "disclosure_date": "2024-01-25",
-        "party": "Republican"
+        "party": "Republican",
     },
+    {
+        "representative": "Hon. Nancy Pelosi",
+        "ticker": "AAPL",
+        "type": "purchase",
+        "amount": "$500,001 - $1,000,000",
+        "transaction_date": "2024-01-12",
+        "disclosure_date": "2024-01-18",
+        "party": "Democrat",
+    },
+    # 2023
     {
         "representative": "Hon. Nancy Pelosi",
         "ticker": "MSFT",
@@ -116,8 +118,53 @@ SAMPLE_DATA = [
         "amount": "$500,001 - $1,000,000",
         "transaction_date": "2023-11-20",
         "disclosure_date": "2023-12-04",
-        "party": "Democrat"
-    }
+        "party": "Democrat",
+    },
+    {
+        "representative": "Hon. Nancy Pelosi",
+        "ticker": "NVDA",
+        "type": "purchase",
+        "amount": "$1,000,001 - $5,000,000",
+        "transaction_date": "2023-11-22",
+        "disclosure_date": "2023-12-04",
+        "party": "Democrat",
+    },
+    {
+        "representative": "Hon. Michael McCaul",
+        "ticker": "AAPL",
+        "type": "purchase",
+        "amount": "$50,001 - $100,000",
+        "transaction_date": "2023-09-12",
+        "disclosure_date": "2023-10-02",
+        "party": "Republican",
+    },
+    {
+        "representative": "Hon. Ro Khanna",
+        "ticker": "MSFT",
+        "type": "purchase",
+        "amount": "$15,001 - $50,000",
+        "transaction_date": "2023-07-14",
+        "disclosure_date": "2023-08-04",
+        "party": "Democrat",
+    },
+    {
+        "representative": "Hon. Dan Crenshaw",
+        "ticker": "AMZN",
+        "type": "purchase",
+        "amount": "$1,001 - $15,000",
+        "transaction_date": "2023-05-10",
+        "disclosure_date": "2023-06-02",
+        "party": "Republican",
+    },
+    {
+        "representative": "Hon. Kevin Hern",
+        "ticker": "CVX",
+        "type": "purchase",
+        "amount": "$50,001 - $100,000",
+        "transaction_date": "2023-03-15",
+        "disclosure_date": "2023-04-03",
+        "party": "Republican",
+    },
 ]
 
 
@@ -139,7 +186,7 @@ def _load_raw_data() -> List[dict]:
                 if isinstance(data, list) and len(data) > 0:
                     return data
         except Exception:
-            pass  # Fallback silencieux vers le jeu de données local
+            pass
 
     return SAMPLE_DATA
 
