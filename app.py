@@ -14,6 +14,19 @@ from sp500_strategy_simulator.congress_data import fetch_congress_transactions, 
 
 st.set_page_config(page_title="S&P 500 Strategy Simulator", layout="wide", page_icon="📈")
 
+# Helper pour compatibilité Streamlit selon les versions
+def _dataframe_compat(df):
+    try:
+        st.dataframe(df, width="stretch")
+    except TypeError:
+        st.dataframe(df, use_container_width=True)
+
+def _line_chart_compat(data):
+    try:
+        st.line_chart(data, width="stretch")
+    except TypeError:
+        st.line_chart(data, use_container_width=True)
+
 # --- Barre latérale : Sélection de Stratégie & Paramètres ---
 with st.sidebar:
     st.header("🎯 Stratégie")
@@ -69,8 +82,8 @@ with st.sidebar:
         st.subheader("Paramètres Congress Tracker")
         politician_choice = st.selectbox(
             "Membre du Congrès à copier",
-            options=["Tous les membres", "Nancy Pelosi", "Ro Khanna", "Michael McCaul", "Kevin Hern"],
-            index=1,
+            options=get_top_politicians(),
+            index=0,
             help="Sélectionnez un membre ou suivez l'ensemble des transactions publiées",
         )
         holding_days = st.slider(
@@ -99,21 +112,23 @@ with st.sidebar:
     fixed_fee = col_frais1.number_input("Frais fixes / ordre ($)", min_value=0.0, value=1.0, step=0.5)
     tax_percent = col_frais2.number_input("Flat Tax / Impôt (%)", min_value=0.0, max_value=100.0, value=30.0, step=1.0)
 
-    run_btn = st.button("🚀 Lancer la simulation", type="primary", use_container_width=True)
+    try:
+        run_btn = st.button("🚀 Lancer la simulation", type="primary", width="stretch")
+    except TypeError:
+        run_btn = st.button("🚀 Lancer la simulation", type="primary", use_container_width=True)
 
 st.title(f"📈 {selected_strategy}")
 
 # --- Aperçu en direct des déclarations pour Congress Tracker ---
 if selected_strategy == "🏛️ Congress Tracker (Copie des élus US)":
     st.markdown("### 🏛️ Flux des déclarations STOCK Act")
-    st.write("Ce module récupère en temps réel les déclarations officielles (PTR) déposées par les membres du Congrès américain.")
+    st.write("Ce module récupère les déclarations officielles (PTR) déposées par les membres du Congrès américain.")
     with st.spinner("Chargement des transactions du Congrès..."):
         pol_filter = None if politician_choice == "Tous les membres" else politician_choice
         df_congress = fetch_congress_transactions(politician=pol_filter)
         if not df_congress.empty:
-            st.dataframe(
-                df_congress.head(20)[["disclosure_date", "transaction_date", "representative", "ticker", "type", "amount"]],
-                use_container_width=True,
+            _dataframe_compat(
+                df_congress.head(20)[["disclosure_date", "transaction_date", "representative", "ticker", "type", "amount"]]
             )
         else:
             st.info("Aucune transaction trouvée.")
@@ -213,7 +228,7 @@ if run_btn:
 
     df_curve = pd.DataFrame([{"Date": pt.session_date, "Portfolio Value": pt.value} for pt in curve])
     df_curve.set_index("Date", inplace=True)
-    st.line_chart(df_curve, use_container_width=True)
+    _line_chart_compat(df_curve)
 
     with st.expander(f"📝 Historique des transactions ({len(trades)} trades)"):
         if trades:
@@ -228,6 +243,6 @@ if run_btn:
                 }
                 for t in trades
             ])
-            st.dataframe(df_trades, use_container_width=True)
+            _dataframe_compat(df_trades)
         else:
             st.info("Aucune transaction exécutée sur la période.")
