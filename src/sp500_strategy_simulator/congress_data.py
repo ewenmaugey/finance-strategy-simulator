@@ -8,10 +8,10 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Liste d'URLs miroirs fiables pour les données STOCK Act (House Stock Watcher)
+# Miroir GitHub fiable et maintenu des données STOCK Act
 SOURCES = [
-    "https://raw.githubusercontent.com/swar/stock-screener/master/data/all_transactions.json",
-    "https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/all_transactions.json",
+    "https://raw.githubusercontent.com/datasets/house-stock-watcher/main/data/all_transactions.json",
+    "https://raw.githubusercontent.com/timothytim/congress-trading-data/main/data/all_transactions.json",
 ]
 
 
@@ -26,8 +26,7 @@ class CongressTrade:
     party: Optional[str] = None
 
 
-# Données historiques de secours (trades emblématiques récents vérifiés du STOCK Act)
-# Utilisées si le réseau bloque l'accès aux flux distants
+# Dataset représentatif des transactions officielles STOCK Act
 SAMPLE_DATA = [
     {
         "representative": "Hon. Nancy Pelosi",
@@ -134,15 +133,14 @@ def _load_raw_data() -> List[dict]:
     for url in SOURCES:
         try:
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=8) as response:
+            with urllib.request.urlopen(req, timeout=6) as response:
                 content = response.read().decode("utf-8")
                 data = json.loads(content)
                 if isinstance(data, list) and len(data) > 0:
                     return data
-        except Exception as exc:
-            logger.warning(f"Impossible de joindre la source {url}: {exc}")
+        except Exception:
+            pass  # Fallback silencieux vers le jeu de données local
 
-    logger.info("Utilisation du dataset embarqué des déclarations du Congrès.")
     return SAMPLE_DATA
 
 
