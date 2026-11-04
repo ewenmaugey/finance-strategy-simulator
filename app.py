@@ -177,10 +177,17 @@ with st.sidebar:
     )
 
     col_d1, col_d2 = st.columns(2)
-    today = date.today()
-    default_start = today - timedelta(days=365 * 2)
+    # Pour Congress Tracker, les données vérifiées couvrent 2023-2024
+    if selected_strategy == "🏛️ Congress Tracker (Copie des élus US)":
+        default_start = date(2023, 11, 1)
+        default_end = date(2024, 8, 1)
+    else:
+        today = date.today()
+        default_start = today - timedelta(days=365)
+        default_end = today
+
     start_date = col_d1.date_input("Date de début", value=default_start)
-    end_date = col_d2.date_input("Date de fin", value=today)
+    end_date = col_d2.date_input("Date de fin", value=default_end)
 
     capital = st.number_input("Capital initial ($)", min_value=100.0, value=10000.0, step=1000.0)
 
@@ -284,10 +291,10 @@ if run_btn:
         tickers_to_fetch = list(dict.fromkeys(t.ticker for t in trades_congress))
 
         if not tickers_to_fetch:
-            st.warning("Aucune déclaration d'achat trouvée pour cette période et ce membre.")
+            st.warning("Aucune déclaration d'achat trouvée pour cette période et ce membre. Vérifiez que la période de dates dans la barre latérale englobe bien les dates de divulgation (ex: 2023-11-01 à 2024-08-01).")
             st.stop()
 
-        with st.spinner(f"Récupération des cours boursiers pour les {len(tickers_to_fetch)} actions ciblées par le Congrès..."):
+        with st.spinner(f"Récupération des cours boursiers pour les {len(tickers_to_fetch)} actions ciblées ({', '.join(tickers_to_fetch)})..."):
             try:
                 bars_by_symbol = provider.fetch_daily_bars(
                     symbols=tickers_to_fetch,
