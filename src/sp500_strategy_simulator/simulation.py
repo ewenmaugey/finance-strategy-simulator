@@ -16,7 +16,8 @@ def simulate(
 
     Each session, available cash is allocated equally across the top-ranked
     eligible assets at the close. Those positions are sold at the next session's
-    open. Commissions are charged on both sides; fractional shares are allowed.
+    open. Commissions (percentage or fixed per order) are charged on both sides;
+    fractional shares are allowed.
     A missing next-session open skips that symbol's sale and makes it ineligible
     for the next purchase while held. The final session never opens new positions.
     """
@@ -56,7 +57,8 @@ def simulate(
             bar = indexed[symbol].get(current_date)
             if bar is not None:
                 proceeds = quantity * bar.open
-                fee = proceeds * config.commission_rate
+                fee = proceeds * config.commission_rate + config.fixed_commission
+                # Fee cannot exceed proceeds
                 cash += proceeds - fee
                 trades.append(Trade(symbol, current_date, "SELL", bar.open, quantity, fee))
             del held[symbol]
@@ -80,13 +82,19 @@ def simulate(
         if not selected:
             continue
 
-        # Budget net of buy commissions, so the account never spends more cash
-        # than it has. Equal weights use the same gross notional per asset.
-        gross_per_asset = cash / (len(selected) * (1 + config.commission_rate))
+        n_selected = len(selected)
+        total_fixed_fees = n_selected * config.fixed_commission
+        # Vérification qu'il reste assez de cash pour couvrir les frais fixes
+        if cash <= total_fixed_fees:
+            continue
+
+        cash_available_for_positions = cash - total_fixed_fees
+        gross_per_asset = cash_available_for_positions / (n_selected * (1 + config.commission_rate))
+
         for symbol in selected:
             bar = indexed[symbol][current_date]
             quantity = gross_per_asset / bar.close
-            fee = gross_per_asset * config.commission_rate
+            fee = gross_per_asset * config.commission_rate + config.fixed_commission
             cash -= gross_per_asset + fee
             held[symbol] = quantity
             trades.append(Trade(symbol, current_date, "BUY", bar.close, quantity, fee))
