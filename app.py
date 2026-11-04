@@ -2,7 +2,6 @@ import os
 from datetime import date, timedelta
 from dotenv import load_dotenv
 
-# Charger les variables du fichier .env
 load_dotenv()
 
 import pandas as pd
@@ -11,6 +10,7 @@ from sp500_strategy_simulator.config import StrategyConfig
 from sp500_strategy_simulator.data_provider import TwelveDataError, TwelveDataProvider
 from sp500_strategy_simulator.performance import build_equity_curve, calculate_metrics
 from sp500_strategy_simulator.simulation import simulate
+from sp500_strategy_simulator.congress_data import fetch_congress_transactions, get_top_politicians
 
 st.set_page_config(page_title="S&P 500 Strategy Simulator", layout="wide", page_icon="📈")
 
@@ -21,9 +21,9 @@ with st.sidebar:
         "Choisir la stratégie de trading",
         options=[
             "Momentum (Close-to-Next-Open)",
+            "🏛️ Congress Tracker (Copie des élus US)",
             "Buy & Hold (Equi-pondéré) [À venir]",
             "Croisement Moyennes Mobiles (SMA) [À venir]",
-            "Mean Reversion (RSI) [À venir]",
         ],
         index=0,
         help="Sélectionnez la logique d'investissement à tester",
@@ -40,19 +40,6 @@ with st.sidebar:
         help="Détectée automatiquement depuis .env si présent",
     )
 
-    # Top 20 des plus grandes capitalisations du S&P 500
-    top_20_sp500 = (
-        "AAPL, MSFT, NVDA, AMZN, GOOGL, META, BRK.B, LLY, AVGO, TSLA, "
-        "JPM, UNH, V, XOM, MA, JNJ, COST, HD, PG, ABBV"
-    )
-
-    symbols_input = st.text_area(
-        "Univers d'actions (séparées par virgules)",
-        value=top_20_sp500,
-        help="Sélection d'actions du S&P 500 à analyser",
-        height=90,
-    )
-
     col_d1, col_d2 = st.columns(2)
     today = date.today()
     default_start = today - timedelta(days=365)
@@ -64,11 +51,45 @@ with st.sidebar:
     # Paramètres spécifiques selon la stratégie
     if selected_strategy == "Momentum (Close-to-Next-Open)":
         st.subheader("Paramètres Momentum")
+        top_20_sp500 = (
+            "AAPL, MSFT, NVDA, AMZN, GOOGL, META, BRK.B, LLY, AVGO, TSLA, "
+            "JPM, UNH, V, XOM, MA, JNJ, COST, HD, PG, ABBV"
+        )
+        symbols_input = st.text_area(
+            "Univers d'actions (séparées par virgules)",
+            value=top_20_sp500,
+            help="Sélection d'actions du S&P 500 à analyser",
+            height=90,
+        )
         assets = st.number_input("Nombre d'actifs sélectionnés", min_value=1, max_value=50, value=5)
         lookback = st.number_input("Fenêtre Lookback (jours)", min_value=10, value=252)
         skip = st.number_input("Fenêtre Skip (jours)", min_value=0, value=21)
+
+    elif selected_strategy == "🏛️ Congress Tracker (Copie des élus US)":
+        st.subheader("Paramètres Congress Tracker")
+        politician_choice = st.selectbox(
+            "Membre du Congrès à copier",
+            options=["Tous les membres", "Nancy Pelosi", "Ro Khanna", "Michael McCaul", "Kevin Hern"],
+            index=1,
+            help="Sélectionnez un membre ou suivez l'ensemble des transactions publiées",
+        )
+        holding_days = st.slider(
+            "Durée de détention de chaque position (jours)",
+            min_value=15,
+            max_value=365,
+            value=90,
+            step=15,
+            help="Combien de jours après la déclaration officielle l'action est conservée",
+        )
+        st.caption("ℹ️ *Achat exécuté à la date de divulgation publique (Disclosure Date) pour respecter le délai légal du STOCK Act.*")
+        symbols_input = ""
+        assets = 5
+        lookback = 252
+        skip = 21
+
     else:
         st.info("Cette stratégie est en cours d'intégration.")
+        symbols_input = ""
         assets = 5
         lookback = 252
         skip = 21
@@ -82,10 +103,29 @@ with st.sidebar:
 
 st.title(f"📈 {selected_strategy}")
 
+# --- Aperçu en direct des déclarations pour Congress Tracker ---
+if selected_strategy == "🏛️ Congress Tracker (Copie des élus US)":
+    st.markdown("### 🏛️ Flux des déclarations STOCK Act")
+    st.write("Ce module récupère en temps réel les déclarations officielles (PTR) déposées par les membres du Congrès américain.")
+    with st.spinner("Chargement des transactions du Congrès..."):
+        pol_filter = None if politician_choice == "Tous les membres" else politician_choice
+        df_congress = fetch_congress_transactions(politician=pol_filter)
+        if not df_congress.empty:
+            st.dataframe(
+                df_congress.head(20)[["disclosure_date", "transaction_date", "representative", "ticker", "type", "amount"]],
+                use_container_width=True,
+            )
+        else:
+            st.info("Aucune transaction trouvée.")
+
 # --- Exécution ---
 if run_btn:
     if "[À venir]" in selected_strategy:
-        st.warning(f"La stratégie '{selected_strategy}' n'est pas encore implémentée. Sélectionnez la stratégie Momentum.")
+        st.warning(f"La stratégie '{selected_strategy}' n'est pas encore implémentée.")
+        st.stop()
+
+    if selected_strategy == "🏛️ Congress Tracker (Copie des élus US)":
+        st.success(f"Déclarations récupérées avec succès pour **{politician_choice}**. Prochaine étape : génération des ordres d'achat à chaque date de déclaration !")
         st.stop()
 
     api_key = api_key_input.strip()
@@ -117,7 +157,6 @@ if run_btn:
                 end_date=end_date,
             )
 
-            # Lookback étendu pour avoir l'historique suffisant au premier jour du backtest
             history_start = start_date - timedelta(days=int((lookback + skip) * 1.5) + 30)
 
             provider = TwelveDataProvider(api_key=api_key)
@@ -130,7 +169,6 @@ if run_btn:
             trades = simulate(bars_by_symbol, config)
             full_curve = build_equity_curve(bars_by_symbol, trades, config.initial_capital)
 
-            # Filtrer sur la période demandée
             start_index = next(
                 (i for i, pt in enumerate(full_curve) if pt.session_date >= start_date),
                 None,
@@ -148,14 +186,12 @@ if run_btn:
             st.error(f"Erreur durant la simulation : {exc}")
             st.stop()
 
-    # --- Calcul de la fiscalité (Flat Tax) et frais totaux ---
     final_val_brut = curve[-1].value
     gain_brut = final_val_brut - anchor_value
     tax = max(0.0, gain_brut * config.tax_rate) if gain_brut > 0 else 0.0
     final_val_net = final_val_brut - tax
     total_commissions = sum(t.commission for t in trades)
 
-    # --- Affichage des KPIs ---
     st.subheader("📊 Résultats de la stratégie")
     kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
 
@@ -169,19 +205,16 @@ if run_btn:
     kpi4.metric("Ratio de Sharpe", f"{metrics.sharpe_ratio:.2f}")
     kpi5.metric("Max Drawdown", f"{metrics.max_drawdown:.2%}")
 
-    # Statistique des frais
     st.info(
         f"💳 **Frais totaux de courtage :** ${total_commissions:,.2f} "
         f"({len(trades)} ordres exécutés à ${fixed_fee:.2f}/ordre). "
         f"🏛️ **Impôt prélevé sur les gains :** ${tax:,.2f} ({tax_percent:.0f}%)."
     )
 
-    # --- Graphique de la courbe d'équité ---
     df_curve = pd.DataFrame([{"Date": pt.session_date, "Portfolio Value": pt.value} for pt in curve])
     df_curve.set_index("Date", inplace=True)
     st.line_chart(df_curve, use_container_width=True)
 
-    # --- Détails des transactions ---
     with st.expander(f"📝 Historique des transactions ({len(trades)} trades)"):
         if trades:
             df_trades = pd.DataFrame([
