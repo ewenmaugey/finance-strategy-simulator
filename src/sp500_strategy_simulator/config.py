@@ -16,7 +16,9 @@ class StrategyConfig:
     n_assets: int = 5
     momentum_lookback_days: int = 252
     momentum_skip_days: int = 21
-    commission_rate: float = 0.001
+    commission_rate: float = 0.0
+    fixed_commission: float = 1.0
+    tax_rate: float = 0.30
     start_date: date | None = None
     end_date: date | None = None
 
@@ -34,6 +36,10 @@ class StrategyConfig:
             )
         if not 0 <= self.commission_rate < 1:
             raise ValueError("commission_rate must be in [0, 1)")
+        if self.fixed_commission < 0:
+            raise ValueError("fixed_commission must be non-negative")
+        if not 0 <= self.tax_rate <= 1:
+            raise ValueError("tax_rate must be between 0 and 1")
         if (
             self.start_date is not None
             and self.end_date is not None
