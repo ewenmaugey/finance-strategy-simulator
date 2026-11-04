@@ -24,6 +24,9 @@ test = [
   "pytest>=8.0,<10.0",
   "ruff>=0.6,<1.0",
 ]
+gui = [
+  "streamlit>=1.35.0",
+]
 
 [project.scripts]
 sp500-backtest = "sp500_strategy_simulator.cli:main"
