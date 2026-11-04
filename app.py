@@ -78,7 +78,7 @@ def simulate_congress_tracker(
             days_held = (current_date - pos["buy_date"]).days
             if days_held >= holding_days and ticker in daily_bars:
                 bar = daily_bars[ticker]
-                sell_price = bar.open_price if bar.open_price > 0 else bar.close_price
+                sell_price = bar.open if getattr(bar, "open", 0.0) > 0 else bar.close
                 proceeds = pos["shares"] * sell_price - fixed_fee
                 cash += proceeds
                 sim_trades.append(
@@ -101,7 +101,7 @@ def simulate_congress_tracker(
         for ticker in new_targets:
             if ticker in daily_bars and ticker not in active_positions:
                 bar = daily_bars[ticker]
-                buy_price = bar.open_price if bar.open_price > 0 else bar.close_price
+                buy_price = bar.open if getattr(bar, "open", 0.0) > 0 else bar.close
                 if buy_price <= 0:
                     continue
 
@@ -134,7 +134,7 @@ def simulate_congress_tracker(
     for ticker, pos in list(active_positions.items()):
         bar = daily_bars.get(ticker)
         if bar:
-            sell_price = bar.close_price
+            sell_price = bar.close
             proceeds = pos["shares"] * sell_price - fixed_fee
             cash += proceeds
             sim_trades.append(
