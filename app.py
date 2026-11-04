@@ -47,11 +47,13 @@ with st.sidebar:
     end_date = col_d2.date_input("Date de fin", value=today)
 
     capital = st.number_input("Capital initial ($)", min_value=100.0, value=10000.0, step=1000.0)
-    # Sélection de 5 actifs en portefeuille
     assets = st.number_input("Nombre d'actifs en portefeuille", min_value=1, max_value=50, value=5)
     lookback = st.number_input("Fenêtre Lookback (jours)", min_value=10, value=252)
     skip = st.number_input("Fenêtre Skip (jours)", min_value=0, value=21)
-    commission = st.number_input("Commission (%)", min_value=0.0, max_value=5.0, value=0.1) / 100.0
+
+    col_frais1, col_frais2 = st.columns(2)
+    fixed_fee = col_frais1.number_input("Frais fixes / ordre ($)", min_value=0.0, value=1.0, step=0.5)
+    tax_percent = col_frais2.number_input("Flat Tax / Impôt (%)", min_value=0.0, max_value=100.0, value=30.0, step=1.0)
 
     run_btn = st.button("🚀 Lancer la simulation", type="primary", use_container_width=True)
 
@@ -79,7 +81,9 @@ if run_btn:
                 n_assets=assets,
                 momentum_lookback_days=lookback,
                 momentum_skip_days=skip,
-                commission_rate=commission,
+                commission_rate=0.0,
+                fixed_commission=fixed_fee,
+                tax_rate=tax_percent / 100.0,
                 start_date=start_date,
                 end_date=end_date,
             )
@@ -95,7 +99,8 @@ if run_btn:
             )
 
             trades = simulate(bars_by_symbol, config)
-            full_curve = build_equity_curve(bars_by_symbol, trades, config)
+            # Correction: passer config.initial_capital (float) et non l'objet config entier
+            full_curve = build_equity_curve(bars_by_symbol, trades, config.initial_capital)
 
             # Filtrer sur la période demandée
             start_index = next(
@@ -115,16 +120,33 @@ if run_btn:
             st.error(f"Erreur durant la simulation : {exc}")
             st.stop()
 
+    # --- Calcul de la fiscalité (Flat Tax) et frais totaux ---
+    final_val_brut = curve[-1].value
+    gain_brut = final_val_brut - anchor_value
+    tax = max(0.0, gain_brut * config.tax_rate) if gain_brut > 0 else 0.0
+    final_val_net = final_val_brut - tax
+    total_commissions = sum(t.commission for t in trades)
+
     # --- Affichage des KPIs ---
     st.subheader("📊 Résultats de la stratégie")
     kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
 
-    final_val = curve[-1].value
-    kpi1.metric("Valeur finale", f"${final_val:,.2f}", f"{(final_val / anchor_value - 1.0):.2%}")
-    kpi2.metric("Rendement Annuel", f"{metrics.annualized_return:.2%}")
+    kpi1.metric(
+        "Valeur finale Nette",
+        f"${final_val_net:,.2f}",
+        f"Brut: ${final_val_brut:,.2f} | Impôt ({tax_percent:.0f}%): -${tax:,.2f}",
+    )
+    kpi2.metric("Rendement Annuel (Brut)", f"{metrics.annualized_return:.2%}")
     kpi3.metric("Volatilité Annuelle", f"{metrics.annualized_volatility:.2%}")
     kpi4.metric("Ratio de Sharpe", f"{metrics.sharpe_ratio:.2f}")
     kpi5.metric("Max Drawdown", f"{metrics.max_drawdown:.2%}")
+
+    # Statistique des frais
+    st.info(
+        f"💳 **Frais totaux de courtage :** ${total_commissions:,.2f} "
+        f"({len(trades)} ordres exécutés à ${fixed_fee:.2f}/ordre). "
+        f"🏛️ **Impôt prélevé sur les gains :** ${tax:,.2f} ({tax_percent:.0f}%)."
+    )
 
     # --- Graphique de la courbe d'équité ---
     df_curve = pd.DataFrame([{"Date": pt.session_date, "Portfolio Value": pt.value} for pt in curve])
