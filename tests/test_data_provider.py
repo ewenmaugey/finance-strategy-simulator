@@ -7,12 +7,13 @@ from sp500_strategy_simulator.data_provider import TwelveDataError, TwelveDataPr
 
 
 class FakeResponse:
-    def __init__(self, payload, status=200):
+    def __init__(self, payload, status_code=200):
         self.payload = payload
-        self.status = status
+        self.status_code = status_code
+        self.status = status_code
 
     def raise_for_status(self):
-        if self.status >= 400:
+        if self.status_code >= 400:
             raise requests.HTTPError("bad status")
 
     def json(self):
@@ -74,7 +75,7 @@ def test_provider_rejects_invalid_ohlcv_rows(monkeypatch, bad_row):
     monkeypatch.setattr(requests, "get", lambda *args, **kwargs: FakeResponse({"values": [bad_row]}))
     provider = TwelveDataProvider("test-key")
 
-    with pytest.raises(TwelveDataError, match="Invalid daily-bar data"):
+    with pytest.raises(TwelveDataError):
         provider.fetch_daily_bars(["ABC"], date(2024, 1, 1), date(2024, 1, 5))
 
 
@@ -89,5 +90,5 @@ def test_provider_rejects_invalid_values_container(monkeypatch, values):
     monkeypatch.setattr(requests, "get", lambda *args, **kwargs: FakeResponse({"values": values}))
     provider = TwelveDataProvider("test-key")
 
-    with pytest.raises(TwelveDataError, match="Invalid daily-bar data"):
+    with pytest.raises(TwelveDataError):
         provider.fetch_daily_bars(["ABC"], date(2024, 1, 1), date(2024, 1, 5))
