@@ -13,7 +13,7 @@ import random
 from dataclasses import dataclass
 from typing import Sequence
 
-from sp500_strategy_simulator.models import EquityPoint, Trade
+from sp500_strategy_simulator.performance import PortfolioValue
 
 
 @dataclass(frozen=True)
@@ -47,7 +47,7 @@ def _compute_max_drawdown_series(values: Sequence[float]) -> float:
 
 
 def run_monte_carlo(
-    curve: Sequence[EquityPoint],
+    curve: Sequence[PortfolioValue],
     initial_capital: float,
     n_simulations: int = 500,
     seed: int = 42,
