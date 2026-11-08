@@ -35,10 +35,11 @@ def test_simulate_buys_at_close_and_sells_at_next_open() -> None:
 
     trades = simulate(bars, config)
 
+    # First decision at 2024-01-04 (close=12), exited at 2024-01-05 (open=13).
+    # Since 2024-01-05 is the final session, no new unexitable position is opened.
     assert [(trade.side, trade.price) for trade in trades] == [
         ("BUY", 12),
         ("SELL", 13),
-        ("BUY", 13),
     ]
     assert trades[0].quantity == pytest.approx(1_000 / 12)
 
@@ -77,8 +78,8 @@ def test_duplicate_session_is_rejected() -> None:
 
 def test_simulation_uses_only_history_available_at_decision_date() -> None:
     bars = {
-        "AAA": make_bars("AAA", [10, 11, 12, 13]),
-        "BBB": make_bars("BBB", [10, 11, 12, 100]),
+        "AAA": make_bars("AAA", [10, 11, 12, 13, 14]),
+        "BBB": make_bars("BBB", [10, 11, 12, 100, 101]),
     }
     config = StrategyConfig(
         initial_capital=1_000,
@@ -90,9 +91,12 @@ def test_simulation_uses_only_history_available_at_decision_date() -> None:
 
     trades = simulate(bars, config)
 
-    # The 100 close on the final date cannot influence the prior decision.
+    # The 100 close on 2024-01-05 cannot influence prior decisions.
+    # On 2024-01-05, AAA is sold at open, then BBB is bought at close.
+    # On 2024-01-06 (final session), BBB is sold at open, and no position is opened at close.
     assert [(trade.symbol, trade.side, trade.session_date) for trade in trades] == [
         ("AAA", "BUY", date(2024, 1, 4)),
         ("AAA", "SELL", date(2024, 1, 5)),
         ("BBB", "BUY", date(2024, 1, 5)),
+        ("BBB", "SELL", date(2024, 1, 6)),
     ]
