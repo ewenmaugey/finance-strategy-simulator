@@ -50,7 +50,7 @@ def simulate(
     trades: list[Trade] = []
     held: dict[str, float] = {}
 
-    for current_date, next_date in zip(dates, dates[1:]):
+    for i, current_date in enumerate(dates):
         # Exit prior positions at the next session open. Missing bars are
         # conservatively marked unsold; do not silently invent an execution.
         for symbol, quantity in tuple(held.items()):
@@ -58,10 +58,13 @@ def simulate(
             if bar is not None:
                 proceeds = quantity * bar.open
                 fee = proceeds * config.commission_rate + config.fixed_commission
-                # Fee cannot exceed proceeds
                 cash += proceeds - fee
                 trades.append(Trade(symbol, current_date, "SELL", bar.open, quantity, fee))
             del held[symbol]
+
+        # Do not open positions on the final session as they cannot be exited.
+        if i == len(dates) - 1:
+            break
 
         # The ranking API consumes a flat iterable of bars and returns
         # MomentumScore objects. Include only observations up to this session.
@@ -84,7 +87,6 @@ def simulate(
 
         n_selected = len(selected)
         total_fixed_fees = n_selected * config.fixed_commission
-        # Vérification qu'il reste assez de cash pour couvrir les frais fixes
         if cash <= total_fixed_fees:
             continue
 
