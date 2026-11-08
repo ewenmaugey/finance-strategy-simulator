@@ -17,8 +17,8 @@ class StrategyConfig:
     momentum_lookback_days: int = 252
     momentum_skip_days: int = 21
     commission_rate: float = 0.0
-    fixed_commission: float = 1.0
-    tax_rate: float = 0.30
+    fixed_commission: float = 0.0
+    tax_rate: float = 0.0
     start_date: date | None = None
     end_date: date | None = None
 
