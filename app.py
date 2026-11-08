@@ -16,6 +16,11 @@ from sp500_strategy_simulator.congress_data import (
     fetch_congress_transactions,
     get_top_politicians,
 )
+from sp500_strategy_simulator.analytics import (
+    run_monte_carlo,
+    run_parameter_sensitivity,
+    run_walk_forward_split,
+)
 
 st.set_page_config(page_title="S&P 500 Strategy Simulator", layout="wide", page_icon="📈")
 
@@ -79,6 +84,79 @@ def _render_equity_chart(curve, initial_capital: float):
         st.plotly_chart(fig, width="stretch")
     except TypeError:
         st.plotly_chart(fig, use_container_width=True)
+
+def _render_monte_carlo(mc_result):
+    if not mc_result.simulated_trajectories:
+        st.info("Historique insuffisant pour lancer la simulation de Monte Carlo.")
+        return
+
+    fig = go.Figure()
+    sample_trajectories = mc_result.simulated_trajectories[:40]
+    dates = list(range(len(sample_trajectories[0])))
+
+    # Dessiner un échantillon de trajectoires simulées en gris discret
+    for traj in sample_trajectories:
+        fig.add_trace(
+            go.Scatter(
+                x=dates,
+                y=traj,
+                mode="lines",
+                line=dict(color="rgba(150, 150, 150, 0.15)", width=1),
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+
+    # Lignes percentiles
+    fig.add_trace(
+        go.Scatter(
+            x=dates,
+            y=mc_result.percentile_95,
+            mode="lines",
+            name="Scénario Optimiste (95%)",
+            line=dict(color="#2ca02c", width=2),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=dates,
+            y=mc_result.percentile_50,
+            mode="lines",
+            name="Scénario Médian (50%)",
+            line=dict(color="#1f77b4", width=2.5),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=dates,
+            y=mc_result.percentile_5,
+            mode="lines",
+            name="Scénario Pessimiste (5%)",
+            line=dict(color="#d62728", width=2),
+        )
+    )
+
+    fig.update_layout(
+        title="Simulation Monte Carlo (Bootstrapping des rendements quotidiens)",
+        xaxis_title="Jours de bourse simulés",
+        yaxis_title="Capital ($)",
+        yaxis=dict(tickprefix="$", gridcolor="#f0f2f6"),
+        xaxis=dict(gridcolor="#f0f2f6"),
+        hovermode="x unified",
+        height=450,
+        margin=dict(l=40, r=40, t=50, b=40),
+    )
+
+    try:
+        st.plotly_chart(fig, width="stretch")
+    except TypeError:
+        st.plotly_chart(fig, use_container_width=True)
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Médiane finale (50%)", f"${mc_result.percentile_50[-1]:,.2f}")
+    c2.metric("Pire 5% final", f"${mc_result.percentile_5[-1]:,.2f}")
+    c3.metric("Probabilité de perte", f"{mc_result.prob_negative_return:.1%}")
+    c4.metric("Pire Drawdown (médian)", f"{mc_result.worst_drawdown_p50:.2%}")
 
 # --- Simulation spécifique au Congress Tracker ---
 def simulate_congress_tracker(
@@ -443,9 +521,105 @@ if run_btn:
         f"🏛️ **Impôt prélevé sur les gains :** ${tax:,.2f} ({tax_percent:.0f}%)."
     )
 
-    _render_equity_chart(curve, initial_capital=anchor_value)
+    # --- Onglets d'analyse avancée & validation statistique ---
+    tab_curve, tab_mc, tab_sens, tab_trades = st.tabs([
+        "📈 Évolution Portefeuille",
+        "🎲 Simulation Monte Carlo",
+        "🎛️ Analyse de Sensibilité",
+        "📝 Historique des Transactions",
+    ])
 
-    with st.expander(f"📝 Historique des transactions ({len(trades)} trades)"):
+    with tab_curve:
+        _render_equity_chart(curve, initial_capital=anchor_value)
+
+    with tab_mc:
+        st.markdown("#### 🎲 Analyse de robustesse par rééchantillonnage (Monte Carlo)")
+        st.write(
+            "Ce test rééchantillonne de manière aléatoire (avec remise) la séquence des rendements quotidiens "
+            "pour projeter des centaines de trajectoires alternatives possibles et évaluer le risque réel."
+        )
+        with st.spinner("Exécution de la simulation de Monte Carlo (500 tirages)..."):
+            mc_result = run_monte_carlo(curve, n_simulations=500, initial_capital=anchor_value)
+            _render_monte_carlo(mc_result)
+
+    with tab_sens:
+        st.markdown("#### 🎛️ Matrice de Sensibilité des Paramètres")
+        st.write(
+            "Vérifiez si la performance dépend d'un réglage 'miracle' (overfitting) ou si elle s'inscrit "
+            "dans un plateau robuste et résistant aux variations de paramètres."
+        )
+
+        if selected_strategy == "Momentum (Close-to-Next-Open)":
+            col_s1, col_s2 = st.columns(2)
+            lookbacks_tested = col_s1.multiselect("Fenêtres Lookback à tester", [63, 126, 189, 252, 315], default=[126, 252])
+            skips_tested = col_s2.multiselect("Fenêtres Skip à tester", [0, 10, 21, 42], default=[0, 21])
+
+            if st.button("Lancer l'analyse de sensibilité Momentum"):
+                def eval_momentum(p1, p2):
+                    cfg = StrategyConfig(
+                        initial_capital=capital,
+                        n_assets=assets,
+                        momentum_lookback_days=int(p1),
+                        momentum_skip_days=int(p2),
+                        commission_rate=0.0,
+                        fixed_commission=fixed_fee,
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
+                    tds = simulate(bars_by_symbol, cfg)
+                    fc = build_equity_curve(bars_by_symbol, tds, capital)
+                    c = [pt for pt in fc if start_date <= pt.session_date <= end_date]
+                    if not c:
+                        return 0.0
+                    m = calculate_metrics(c, capital)
+                    return m.sharpe_ratio
+
+                with st.spinner("Calcul de la matrice de sensibilité..."):
+                    df_sens = run_parameter_sensitivity(
+                        eval_momentum,
+                        param1_name="Lookback",
+                        param1_values=lookbacks_tested,
+                        param2_name="Skip",
+                        param2_values=skips_tested,
+                    )
+                    st.write("**Ratio de Sharpe obtenu selon les combinaisons :**")
+                    _dataframe_compat(df_sens)
+
+        elif selected_strategy == "🏛️ Congress Tracker (Copie des élus US)":
+            col_s1, col_s2 = st.columns(2)
+            holdings_tested = col_s1.multiselect("Durée de détention (jours)", [30, 60, 90, 120, 180], default=[30, 90, 180])
+            fees_tested = col_s2.multiselect("Frais par ordre ($)", [0.0, 1.0, 2.0, 5.0], default=[0.0, 1.0, 2.0])
+
+            if st.button("Lancer l'analyse de sensibilité Congress"):
+                def eval_congress(p1, p2):
+                    tds = simulate_congress_tracker(
+                        trades_congress=trades_congress,
+                        bars_by_symbol=bars_by_symbol,
+                        holding_days=int(p1),
+                        initial_capital=capital,
+                        fixed_fee=float(p2),
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
+                    fc = build_equity_curve(bars_by_symbol, tds, capital)
+                    c = [pt for pt in fc if start_date <= pt.session_date <= end_date]
+                    if not c:
+                        return 0.0
+                    m = calculate_metrics(c, capital)
+                    return m.sharpe_ratio
+
+                with st.spinner("Calcul de la matrice de sensibilité..."):
+                    df_sens = run_parameter_sensitivity(
+                        eval_congress,
+                        param1_name="Holding (jours)",
+                        param1_values=holdings_tested,
+                        param2_name="Frais ($)",
+                        param2_values=fees_tested,
+                    )
+                    st.write("**Ratio de Sharpe obtenu selon les combinaisons :**")
+                    _dataframe_compat(df_sens)
+
+    with tab_trades:
         if trades:
             df_trades = pd.DataFrame([
                 {
