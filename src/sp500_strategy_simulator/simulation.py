@@ -53,14 +53,21 @@ def simulate(
     for i, current_date in enumerate(dates):
         # Exit prior positions at the next session open. Missing bars are
         # conservatively marked unsold; do not silently invent an execution.
-        for symbol, quantity in tuple(held.items()):
+        sold_this_session = False
+        for symbol, quantity in list(held.items()):
             bar = indexed[symbol].get(current_date)
             if bar is not None:
                 proceeds = quantity * bar.open
                 fee = proceeds * config.commission_rate + config.fixed_commission
                 cash += proceeds - fee
                 trades.append(Trade(symbol, current_date, "SELL", bar.open, quantity, fee))
-            del held[symbol]
+                sold_this_session = True
+                del held[symbol]
+
+        # The final session does not open an unexitable position if no position was
+        # unwound during this session.
+        if i == len(dates) - 1 and not sold_this_session:
+            continue
 
         # The ranking API consumes a flat iterable of bars and returns
         # MomentumScore objects. Include only observations up to this session.
@@ -77,7 +84,7 @@ def simulate(
             config.momentum_lookback_days,
             config.momentum_skip_days,
         )
-        selected = [item.symbol for item in ranked[: config.n_assets]]
+        selected = [item.symbol for item in ranked if item.symbol not in held][: config.n_assets]
         if not selected:
             continue
 
