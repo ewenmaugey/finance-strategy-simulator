@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 from sp500_strategy_simulator.config import StrategyConfig
 from sp500_strategy_simulator.data_provider import TwelveDataError, TwelveDataProvider
@@ -25,11 +26,59 @@ def _dataframe_compat(df):
     except TypeError:
         st.dataframe(df, use_container_width=True)
 
-def _line_chart_compat(data):
+def _render_equity_chart(curve, initial_capital: float):
+    if not curve:
+        return
+
+    dates = [pt.session_date for pt in curve]
+    values = [pt.value for pt in curve]
+
+    fig = go.Figure()
+
+    # Courbe d'évolution du portefeuille
+    fig.add_trace(
+        go.Scatter(
+            x=dates,
+            y=values,
+            mode="lines",
+            name="Valeur Portefeuille",
+            line=dict(color="#1f77b4", width=2.5),
+            hovertemplate="<b>Date</b>: %{x}<br><b>Valeur</b>: $%{y:,.2f}<extra></extra>",
+        )
+    )
+
+    # Ligne repère du capital initial
+    fig.add_hline(
+        y=initial_capital,
+        line_dash="dash",
+        line_color="#888888",
+        line_width=1.5,
+        annotation_text=f"Capital initial (${initial_capital:,.0f})",
+        annotation_position="bottom right",
+    )
+
+    val_min = min(values)
+    val_max = max(values)
+    spread = val_max - val_min
+    y_padding = max(spread * 0.15, initial_capital * 0.02, 100.0)
+
+    fig.update_layout(
+        title="Évolution du portefeuille ($)",
+        margin=dict(l=40, r=40, t=50, b=40),
+        yaxis=dict(
+            range=[val_min - y_padding, val_max + y_padding],
+            tickprefix="$",
+            gridcolor="#f0f2f6",
+        ),
+        xaxis=dict(gridcolor="#f0f2f6"),
+        hovermode="x unified",
+        height=480,
+    )
+
     try:
-        st.line_chart(data, width="stretch")
+        st.plotly_chart(fig, width="stretch")
     except TypeError:
-        st.line_chart(data, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
 
 # --- Simulation spécifique au Congress Tracker ---
 def simulate_congress_tracker(
@@ -394,9 +443,7 @@ if run_btn:
         f"🏛️ **Impôt prélevé sur les gains :** ${tax:,.2f} ({tax_percent:.0f}%)."
     )
 
-    df_curve = pd.DataFrame([{"Date": pt.session_date, "Portfolio Value": pt.value} for pt in curve])
-    df_curve.set_index("Date", inplace=True)
-    _line_chart_compat(df_curve)
+    _render_equity_chart(curve, initial_capital=anchor_value)
 
     with st.expander(f"📝 Historique des transactions ({len(trades)} trades)"):
         if trades:
