@@ -58,7 +58,6 @@ class TwelveDataProvider:
             raise ValueError("symbols cannot contain empty values")
 
         results: dict[str, list[DailyBar]] = {}
-        total = len(requested)
 
         for index, symbol in enumerate(requested):
             # Pause between requests to respect Twelve Data's rate limit (8 req/min for free tier)
@@ -79,7 +78,7 @@ class TwelveDataProvider:
                     },
                     timeout=self.timeout,
                 )
-                if response.status_code == 429:
+                if getattr(response, "status_code", None) == 429:
                     raise TwelveDataError(
                         f"Limite d'appels API atteinte (erreur 429) pour '{symbol}'. "
                         "Le plan gratuit de Twelve Data autorise un maximum de 8 requêtes par minute et 800 par jour. "
@@ -90,10 +89,10 @@ class TwelveDataProvider:
             except requests.RequestException as exc:
                 raise TwelveDataError(f"Échec de la connexion à Twelve Data pour '{symbol}': {exc}") from exc
             except ValueError as exc:
-                raise TwelveDataError(f"Réponse invalide de Twelve Data pour '{symbol}'") from exc
+                raise TwelveDataError(f"Invalid daily-bar data for '{symbol}'") from exc
 
             if not isinstance(payload, dict):
-                raise TwelveDataError(f"Réponse inattendue de Twelve Data pour '{symbol}'")
+                raise TwelveDataError(f"Invalid daily-bar data for '{symbol}'")
 
             # Handle Twelve Data API error messages (including quota/limit in JSON payload)
             if payload.get("status") == "error" or "values" not in payload:
@@ -107,7 +106,7 @@ class TwelveDataProvider:
                 raise TwelveDataError(f"Erreur Twelve Data pour '{symbol}': {message}")
 
             if not isinstance(payload["values"], list):
-                raise TwelveDataError(f"Données de chandeliers quotidiennes invalides pour '{symbol}'")
+                raise TwelveDataError(f"Invalid daily-bar data for '{symbol}'")
 
             bars: list[DailyBar] = []
             try:
@@ -128,6 +127,8 @@ class TwelveDataProvider:
                         raise ValueError("volume cannot be negative")
                     if any(not math.isfinite(value) for value in prices.values()):
                         raise ValueError("prices must be finite")
+                    if not (prices["low"] <= prices["open"] <= prices["high"] and prices["low"] <= prices["close"] <= prices["high"]):
+                        raise ValueError("OHLC prices inconsistent")
                     bars.append(
                         DailyBar(
                             symbol=symbol,
@@ -138,7 +139,7 @@ class TwelveDataProvider:
                     )
                 bars.sort(key=lambda bar: bar.session_date)
             except (KeyError, TypeError, ValueError, OverflowError) as exc:
-                raise TwelveDataError(f"Données corrompues pour '{symbol}'") from exc
+                raise TwelveDataError(f"Invalid daily-bar data for '{symbol}'") from exc
             if len({bar.session_date for bar in bars}) != len(bars):
                 raise TwelveDataError(f"Dates en double détectées pour '{symbol}'")
             results[symbol] = bars
