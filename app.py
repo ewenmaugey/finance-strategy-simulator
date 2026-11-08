@@ -19,7 +19,6 @@ from sp500_strategy_simulator.congress_data import (
 from sp500_strategy_simulator.analytics import (
     run_monte_carlo,
     run_parameter_sensitivity,
-    run_walk_forward_split,
 )
 
 st.set_page_config(page_title="S&P 500 Strategy Simulator", layout="wide", page_icon="📈")
@@ -86,7 +85,7 @@ def _render_equity_chart(curve, initial_capital: float):
         st.plotly_chart(fig, use_container_width=True)
 
 def _render_monte_carlo(mc_result):
-    if not mc_result.simulated_trajectories:
+    if not mc_result or not mc_result.simulated_trajectories:
         st.info("Historique insuffisant pour lancer la simulation de Monte Carlo.")
         return
 
@@ -304,7 +303,6 @@ with st.sidebar:
     )
 
     col_d1, col_d2 = st.columns(2)
-    # Pour Congress Tracker, les données vérifiées couvrent 2023-2024
     if selected_strategy == "🏛️ Congress Tracker (Copie des élus US)":
         default_start = date(2023, 11, 1)
         default_end = date(2024, 8, 1)
@@ -389,7 +387,7 @@ if selected_strategy == "🏛️ Congress Tracker (Copie des élus US)":
     else:
         st.info("Aucune transaction trouvée.")
 
-# --- Exécution ---
+# --- Exécution et persistance dans st.session_state ---
 if run_btn:
     if "[À venir]" in selected_strategy:
         st.warning(f"La stratégie '{selected_strategy}' n'est pas encore implémentée.")
@@ -414,7 +412,6 @@ if run_btn:
             politician_filter=pol_filter,
             only_purchases=True,
         )
-
         tickers_to_fetch = list(dict.fromkeys(t.ticker for t in trades_congress))
 
         if not tickers_to_fetch:
@@ -444,6 +441,22 @@ if run_btn:
 
                 anchor_value = capital
                 metrics = calculate_metrics(curve, anchor_value)
+
+                st.session_state["sim_results"] = {
+                    "strategy": selected_strategy,
+                    "curve": curve,
+                    "anchor_value": anchor_value,
+                    "metrics": metrics,
+                    "trades": trades,
+                    "bars_by_symbol": bars_by_symbol,
+                    "trades_congress": trades_congress,
+                    "capital": capital,
+                    "fixed_fee": fixed_fee,
+                    "tax_percent": tax_percent,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "assets": assets,
+                }
             except (TwelveDataError, ValueError) as exc:
                 st.error(f"Erreur durant la simulation Congress : {exc}")
                 st.stop()
@@ -491,11 +504,40 @@ if run_btn:
                 anchor_value = full_curve[start_index - 1].value if start_index > 0 else config.initial_capital
                 metrics = calculate_metrics(curve, anchor_value)
 
+                st.session_state["sim_results"] = {
+                    "strategy": selected_strategy,
+                    "curve": curve,
+                    "anchor_value": anchor_value,
+                    "metrics": metrics,
+                    "trades": trades,
+                    "bars_by_symbol": bars_by_symbol,
+                    "capital": capital,
+                    "fixed_fee": fixed_fee,
+                    "tax_percent": tax_percent,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "assets": assets,
+                }
             except (TwelveDataError, ValueError) as exc:
                 st.error(f"Erreur durant la simulation : {exc}")
                 st.stop()
 
-    # --- Métriques & Résultats communs ---
+# --- Affichage des résultats s'ils existent dans st.session_state ---
+if "sim_results" in st.session_state:
+    res = st.session_state["sim_results"]
+    curve = res["curve"]
+    anchor_value = res["anchor_value"]
+    metrics = res["metrics"]
+    trades = res["trades"]
+    bars_by_symbol = res["bars_by_symbol"]
+    sim_strategy = res["strategy"]
+    capital = res["capital"]
+    fixed_fee = res["fixed_fee"]
+    tax_percent = res["tax_percent"]
+    start_date = res["start_date"]
+    end_date = res["end_date"]
+    assets = res["assets"]
+
     final_val_brut = curve[-1].value if curve else capital
     gain_brut = final_val_brut - anchor_value
     tax = max(0.0, gain_brut * (tax_percent / 100.0)) if gain_brut > 0 else 0.0
@@ -521,7 +563,6 @@ if run_btn:
         f"🏛️ **Impôt prélevé sur les gains :** ${tax:,.2f} ({tax_percent:.0f}%)."
     )
 
-    # --- Onglets d'analyse avancée & validation statistique ---
     tab_curve, tab_mc, tab_sens, tab_trades = st.tabs([
         "📈 Évolution Portefeuille",
         "🎲 Simulation Monte Carlo",
@@ -535,12 +576,13 @@ if run_btn:
     with tab_mc:
         st.markdown("#### 🎲 Analyse de robustesse par rééchantillonnage (Monte Carlo)")
         st.write(
-            "Ce test rééchantillonne de manière aléatoire (avec remise) la séquence des rendements quotidiens "
-            "pour projeter des centaines de trajectoires alternatives possibles et évaluer le risque réel."
+            "Ce test rééchantillonne aléatoirement (avec remise) la séquence des rendements journaliers "
+            "pour projeter 500 trajectoires possibles dans le temps et mesurer le risque d'accident."
         )
-        with st.spinner("Exécution de la simulation de Monte Carlo (500 tirages)..."):
-            mc_result = run_monte_carlo(curve, n_simulations=500, initial_capital=anchor_value)
-            _render_monte_carlo(mc_result)
+        if "mc_result" not in st.session_state:
+            with st.spinner("Exécution de la simulation de Monte Carlo (500 tirages)..."):
+                st.session_state["mc_result"] = run_monte_carlo(curve, n_simulations=500, initial_capital=anchor_value)
+        _render_monte_carlo(st.session_state.get("mc_result"))
 
     with tab_sens:
         st.markdown("#### 🎛️ Matrice de Sensibilité des Paramètres")
@@ -549,7 +591,7 @@ if run_btn:
             "dans un plateau robuste et résistant aux variations de paramètres."
         )
 
-        if selected_strategy == "Momentum (Close-to-Next-Open)":
+        if sim_strategy == "Momentum (Close-to-Next-Open)":
             col_s1, col_s2 = st.columns(2)
             lookbacks_tested = col_s1.multiselect("Fenêtres Lookback à tester", [63, 126, 189, 252, 315], default=[126, 252])
             skips_tested = col_s2.multiselect("Fenêtres Skip à tester", [0, 10, 21, 42], default=[0, 21])
@@ -582,15 +624,19 @@ if run_btn:
                         param2_name="Skip",
                         param2_values=skips_tested,
                     )
-                    st.write("**Ratio de Sharpe obtenu selon les combinaisons :**")
-                    _dataframe_compat(df_sens)
+                    st.session_state["sens_result"] = df_sens
 
-        elif selected_strategy == "🏛️ Congress Tracker (Copie des élus US)":
+            if "sens_result" in st.session_state:
+                st.write("**Ratio de Sharpe obtenu selon les combinaisons (Lookback vs Skip) :**")
+                _dataframe_compat(st.session_state["sens_result"])
+
+        elif sim_strategy == "🏛️ Congress Tracker (Copie des élus US)":
             col_s1, col_s2 = st.columns(2)
             holdings_tested = col_s1.multiselect("Durée de détention (jours)", [30, 60, 90, 120, 180], default=[30, 90, 180])
             fees_tested = col_s2.multiselect("Frais par ordre ($)", [0.0, 1.0, 2.0, 5.0], default=[0.0, 1.0, 2.0])
 
             if st.button("Lancer l'analyse de sensibilité Congress"):
+                trades_congress = res.get("trades_congress", [])
                 def eval_congress(p1, p2):
                     tds = simulate_congress_tracker(
                         trades_congress=trades_congress,
@@ -616,8 +662,11 @@ if run_btn:
                         param2_name="Frais ($)",
                         param2_values=fees_tested,
                     )
-                    st.write("**Ratio de Sharpe obtenu selon les combinaisons :**")
-                    _dataframe_compat(df_sens)
+                    st.session_state["sens_result"] = df_sens
+
+            if "sens_result" in st.session_state:
+                st.write("**Ratio de Sharpe obtenu selon les combinaisons :**")
+                _dataframe_compat(st.session_state["sens_result"])
 
     with tab_trades:
         if trades:
