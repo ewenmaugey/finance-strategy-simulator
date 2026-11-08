@@ -62,10 +62,6 @@ def simulate(
                 trades.append(Trade(symbol, current_date, "SELL", bar.open, quantity, fee))
             del held[symbol]
 
-        # Do not open positions on the final session as they cannot be exited.
-        if i == len(dates) - 1:
-            break
-
         # The ranking API consumes a flat iterable of bars and returns
         # MomentumScore objects. Include only observations up to this session.
         ranking_input = (
