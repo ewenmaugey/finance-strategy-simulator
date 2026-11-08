@@ -1,17 +1,18 @@
 """Statistical validation and quantitative analytics tools.
 
 Provides:
-- Monte Carlo simulation via trade/daily return bootstrapping.
+- Monte Carlo simulation via daily return bootstrapping.
 - Parameter sensitivity grid evaluations.
 - Walk-Forward Analysis helpers.
 """
 
 from __future__ import annotations
 
-import math
 import random
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Sequence
+
+import pandas as pd
 
 from sp500_strategy_simulator.performance import PortfolioValue
 
@@ -31,6 +32,23 @@ class MonteCarloResult:
     p95_max_drawdown: float
     percentile_curves: dict[str, list[float]]  # 'p5', 'p25', 'p50', 'p75', 'p95'
     dates: list[str]
+    simulated_trajectories: list[list[float]]
+
+    @property
+    def percentile_95(self) -> list[float]:
+        return self.percentile_curves.get("p95", [])
+
+    @property
+    def percentile_50(self) -> list[float]:
+        return self.percentile_curves.get("p50", [])
+
+    @property
+    def percentile_5(self) -> list[float]:
+        return self.percentile_curves.get("p5", [])
+
+    @property
+    def worst_drawdown_p50(self) -> float:
+        return self.median_max_drawdown
 
 
 def _compute_max_drawdown_series(values: Sequence[float]) -> float:
@@ -74,7 +92,6 @@ def run_monte_carlo(
     all_trajectories: list[list[float]] = []
 
     for _ in range(n_simulations):
-        # Sample returns with replacement
         sampled_returns = [rng.choice(daily_returns) for _ in range(n_days)]
         trajectory = [initial_capital]
         current_val = initial_capital
@@ -129,4 +146,51 @@ def run_monte_carlo(
             "p95": p95_path,
         },
         dates=dates,
+        simulated_trajectories=all_trajectories,
     )
+
+
+def run_parameter_sensitivity(
+    eval_fn: Callable[[float | int, float | int], float],
+    param1_name: str,
+    param1_values: Sequence[float | int],
+    param2_name: str,
+    param2_values: Sequence[float | int],
+) -> pd.DataFrame:
+    """Evaluate an objective metric over a 2D parameter grid.
+
+    Returns a pandas DataFrame where index is param1 and columns are param2.
+    """
+    matrix: dict[str, list[float]] = {}
+    row_labels = [f"{param1_name}={v}" for v in param1_values]
+
+    for p2 in param2_values:
+        col_name = f"{param2_name}={p2}"
+        matrix[col_name] = []
+        for p1 in param1_values:
+            score = eval_fn(p1, p2)
+            matrix[col_name].append(round(score, 2))
+
+    return pd.DataFrame(matrix, index=row_labels)
+
+
+def run_walk_forward_split(
+    dates: Sequence[str],
+    n_splits: int = 3,
+    train_ratio: float = 0.7,
+) -> list[tuple[list[str], list[str]]]:
+    """Generate sequential train/test date slices for walk-forward evaluation."""
+    if len(dates) < n_splits * 2:
+        return []
+
+    splits = []
+    chunk_size = len(dates) // n_splits
+    for i in range(n_splits):
+        window = dates[: (i + 1) * chunk_size]
+        split_point = int(len(window) * train_ratio)
+        train_dates = list(window[:split_point])
+        test_dates = list(window[split_point:])
+        if train_dates and test_dates:
+            splits.append((train_dates, test_dates))
+
+    return splits
