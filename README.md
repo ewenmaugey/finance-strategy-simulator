@@ -1,4 +1,4 @@
-# S&P 500 Strategy Simulator
+# Finance Strategy Simulator
 
 Simulateur de stratégies de trading quantitatives sur actions américaines, avec interface web Streamlit.
 
